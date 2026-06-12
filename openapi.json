@@ -1,0 +1,364 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "trusted-leads-service",
+    "version": "0.1.0",
+    "description": "Verified-email lead provider backed by the Apify waterfall (pipelinelabs + microworlds, clearpath inferred fallback). Replaces Apollo for lead search + verified email."
+  },
+  "servers": [
+    {
+      "url": "/"
+    }
+  ],
+  "components": {
+    "schemas": {
+      "SearchResponse": {
+        "type": "object",
+        "properties": {
+          "searchId": {
+            "type": "string"
+          },
+          "leadCount": {
+            "type": "number"
+          },
+          "verifiedCount": {
+            "type": "number"
+          },
+          "leads": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Lead"
+            }
+          }
+        },
+        "required": [
+          "searchId",
+          "leadCount",
+          "verifiedCount",
+          "leads"
+        ]
+      },
+      "Lead": {
+        "type": "object",
+        "properties": {
+          "firstName": {
+            "type": "string",
+            "nullable": true
+          },
+          "lastName": {
+            "type": "string",
+            "nullable": true
+          },
+          "fullName": {
+            "type": "string",
+            "nullable": true
+          },
+          "title": {
+            "type": "string",
+            "nullable": true
+          },
+          "seniority": {
+            "type": "string",
+            "nullable": true
+          },
+          "email": {
+            "type": "string"
+          },
+          "emailStatus": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "pipelinelabs",
+              "microworlds",
+              "clearpath"
+            ]
+          },
+          "isCatchAll": {
+            "type": "boolean"
+          },
+          "isInferred": {
+            "type": "boolean"
+          },
+          "linkedinUrl": {
+            "type": "string",
+            "nullable": true
+          },
+          "city": {
+            "type": "string",
+            "nullable": true
+          },
+          "state": {
+            "type": "string",
+            "nullable": true
+          },
+          "country": {
+            "type": "string",
+            "nullable": true
+          },
+          "companyName": {
+            "type": "string",
+            "nullable": true
+          },
+          "companyDomain": {
+            "type": "string",
+            "nullable": true
+          },
+          "companyIndustry": {
+            "type": "string",
+            "nullable": true
+          },
+          "companySize": {
+            "type": "number",
+            "nullable": true
+          },
+          "companyLinkedinUrl": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "email",
+          "emailStatus",
+          "source",
+          "isCatchAll",
+          "isInferred"
+        ]
+      },
+      "SearchRequest": {
+        "type": "object",
+        "properties": {
+          "titles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "seniorities": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "functions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "locationCountries": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "locationStates": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "locationCities": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "companyNames": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "industries": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "companyDomains": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "keywords": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "employeeMin": {
+            "type": "integer",
+            "minimum": 0,
+            "exclusiveMinimum": true
+          },
+          "employeeMax": {
+            "type": "integer",
+            "minimum": 0,
+            "exclusiveMinimum": true
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000
+          }
+        },
+        "required": [
+          "limit"
+        ]
+      },
+      "ResolveResponse": {
+        "type": "object",
+        "properties": {
+          "searchId": {
+            "type": "string"
+          },
+          "requested": {
+            "type": "number"
+          },
+          "resolvedCount": {
+            "type": "number"
+          },
+          "leads": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Lead"
+            }
+          }
+        },
+        "required": [
+          "searchId",
+          "requested",
+          "resolvedCount",
+          "leads"
+        ]
+      },
+      "ResolveRequest": {
+        "type": "object",
+        "properties": {
+          "leads": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LeadInput"
+            },
+            "minItems": 1,
+            "maxItems": 100
+          },
+          "includeInferred": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "leads"
+        ]
+      },
+      "LeadInput": {
+        "type": "object",
+        "properties": {
+          "firstName": {
+            "type": "string",
+            "minLength": 1
+          },
+          "lastName": {
+            "type": "string",
+            "minLength": 1
+          },
+          "companyDomain": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "firstName",
+          "lastName",
+          "companyDomain"
+        ]
+      }
+    },
+    "parameters": {}
+  },
+  "paths": {
+    "/search": {
+      "post": {
+        "summary": "Search for verified-email leads via the Apify waterfall (pipelinelabs + microworlds).",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SearchRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Verified leads",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/resolve": {
+      "post": {
+        "summary": "Resolve verified emails for known leads (name + domain) via the waterfall.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Resolved leads",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResolveResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/searches/{runId}": {
+      "get": {
+        "summary": "Fetch stored leads for a run.",
+        "responses": {
+          "200": {
+            "description": "Leads for the run",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "leads": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Lead"
+                      }
+                    }
+                  },
+                  "required": [
+                    "leads"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
