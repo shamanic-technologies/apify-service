@@ -19,7 +19,8 @@ Verified-email lead provider backed by the Apify waterfall (pipelinelabs + micro
 - `src/lib/apify-client.ts` — generic Apify run+poll runner (banner-row tolerant)
 - `src/lib/waterfall.ts` — actor inputs/mappers + search & 3-tier resolve orchestration
 - `src/lib/keys-client.ts` — platform Apify key via key-service
-- `src/lib/runs-client.ts` — run + cost tracking
+- `src/lib/runs-client.ts` — run + cost tracking (createRun, addCosts, updateCostStatus, updateRun)
+- `src/lib/cost-tracking.ts` — per-actor cost names + provision→authorize / actualize→cancel helpers
 - `src/lib/billing-client.ts` — affordability authorize
 - `src/db/schema.ts` — `lead_searches` + `leads` (leads doubles as 12-month cache)
 
@@ -29,7 +30,7 @@ Verified-email lead provider backed by the Apify waterfall (pipelinelabs + micro
 - Fail-loud: no swallowed errors, no silent fallbacks, no `.default()` on Zod.
 - Log prefix `[trusted-leads-service]`.
 - Migrations auto-run at boot; SQL is idempotent (`IF NOT EXISTS`).
-- The Apify token is a PLATFORM key. Org pays per verified lead via the `apify-verified-lead` cost (must exist in costs-service).
+- The Apify token is a PLATFORM key. Cost is tracked PER ACTOR (provision→authorize→execute→actualize, fail-loud): `apify-pipelinelabs-lead`, `apify-microworlds-lead`, `apify-clearpath-lead` (all must exist in costs-service or the provision 422s before spend).
 - Verified = real DB email (tiers 1–2). Inferred = clearpath pattern-guess (tier 3, opt-in, tagged `source:"inferred"`). Never mix silently.
 
 ## Actor reference

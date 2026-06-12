@@ -96,14 +96,36 @@ export async function updateRun(
   });
 }
 
+export interface RunCost {
+  id: string;
+  costName: string;
+  costSource: "platform" | "org";
+  quantity: string;
+  status?: string;
+}
+
 export async function addCosts(
   runId: string,
   items: CostItem[],
   identity: IdentityHeaders
-): Promise<{ costs: unknown[] }> {
-  return runsRequest<{ costs: unknown[] }>(`/v1/runs/${runId}/costs`, {
+): Promise<{ costs: RunCost[] }> {
+  return runsRequest<{ costs: RunCost[] }>(`/v1/runs/${runId}/costs`, {
     method: "POST",
     identity: { ...identity, runId },
     body: { items },
+  });
+}
+
+/** Update a cost item's status (provisioned → actual or cancelled). */
+export async function updateCostStatus(
+  runId: string,
+  costId: string,
+  status: "actual" | "provisioned" | "cancelled",
+  identity: IdentityHeaders
+): Promise<RunCost> {
+  return runsRequest<RunCost>(`/v1/runs/${runId}/costs/${costId}`, {
+    method: "PATCH",
+    identity: { ...identity, runId },
+    body: { status },
   });
 }
