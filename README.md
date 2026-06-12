@@ -1,4 +1,4 @@
-# trusted-leads-service
+# apify-service
 
 Verified-email lead provider backed by the **Apify waterfall**. Replaces Apollo for lead search + verified-email acquisition at ~$1.5 per 1,000 verified emails (vs Apollo ~$30–50/1k).
 
@@ -45,7 +45,7 @@ Per-actor cost names (`costSource:"platform"`):
 
 ## Env
 
-See `.env.example`. Required: `TRUSTED_LEADS_SERVICE_DATABASE_URL`, `KEY_SERVICE_URL`/`KEY_SERVICE_API_KEY`, `RUNS_SERVICE_URL`/`RUNS_SERVICE_API_KEY`, `BILLING_SERVICE_URL`/`BILLING_SERVICE_API_KEY`.
+See `.env.example`. Required: `APIFY_SERVICE_DATABASE_URL`, `KEY_SERVICE_URL`/`KEY_SERVICE_API_KEY`, `RUNS_SERVICE_URL`/`RUNS_SERVICE_API_KEY`, `BILLING_SERVICE_URL`/`BILLING_SERVICE_API_KEY`.
 
 ## Dev
 

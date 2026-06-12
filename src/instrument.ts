@@ -8,5 +8,5 @@ if (process.env.SENTRY_DSN) {
     sendDefaultPii: true,
     registerEsmLoaderHooks: { exclude: [/drizzle-orm/] },
   });
-  Sentry.setTag("service", "trusted-leads-service");
+  Sentry.setTag("service", "apify-service");
 }

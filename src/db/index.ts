@@ -6,9 +6,9 @@ let sqlClient: Sql | null = null;
 let dbInstance: PostgresJsDatabase<typeof schema> | null = null;
 
 function getConnectionString(): string {
-  const connectionString = process.env.TRUSTED_LEADS_SERVICE_DATABASE_URL;
+  const connectionString = process.env.APIFY_SERVICE_DATABASE_URL;
   if (!connectionString) {
-    throw new Error("TRUSTED_LEADS_SERVICE_DATABASE_URL is not set");
+    throw new Error("APIFY_SERVICE_DATABASE_URL is not set");
   }
   return connectionString;
 }

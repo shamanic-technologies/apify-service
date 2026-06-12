@@ -10,7 +10,7 @@ const generator = new OpenApiGeneratorV3(registry.definitions);
 const doc = generator.generateDocument({
   openapi: "3.0.0",
   info: {
-    title: "trusted-leads-service",
+    title: "apify-service",
     version: "0.1.0",
     description:
       "Verified-email lead provider backed by the Apify waterfall (pipelinelabs + microworlds, clearpath inferred fallback). Replaces Apollo for lead search + verified email.",
@@ -20,4 +20,4 @@ const doc = generator.generateDocument({
 
 const outPath = join(__dirname, "..", "openapi.json");
 writeFileSync(outPath, JSON.stringify(doc, null, 2));
-console.log(`[trusted-leads-service] OpenAPI spec written to ${outPath}`);
+console.log(`[apify-service] OpenAPI spec written to ${outPath}`);

@@ -5,6 +5,6 @@ export default defineConfig({
   out: "./drizzle",
   dialect: "postgresql",
   dbCredentials: {
-    url: process.env.TRUSTED_LEADS_SERVICE_DATABASE_URL!,
+    url: process.env.APIFY_SERVICE_DATABASE_URL!,
   },
 });

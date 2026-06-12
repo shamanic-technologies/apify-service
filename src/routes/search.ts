@@ -20,7 +20,7 @@ import {
 
 const router = Router();
 
-const SERVICE_NAME = "trusted-leads";
+const SERVICE_NAME = "apify-service";
 const CACHE_MAX_AGE_MS = 365 * 24 * 60 * 60 * 1000; // 12 months
 
 function identityFromReq(req: AuthenticatedRequest): IdentityHeaders {
@@ -135,7 +135,7 @@ router.post("/search", serviceAuth, async (req: AuthenticatedRequest, res: Respo
         { costName: COST_NAME_BY_SOURCE.pipelinelabs, quantity: filters.limit },
         { costName: COST_NAME_BY_SOURCE.microworlds, quantity: filters.limit },
       ],
-      `trusted-leads search (${filters.limit} leads)`,
+      `apify-service search (${filters.limit} leads)`,
       runIdentity
     );
 
@@ -179,7 +179,7 @@ router.post("/search", serviceAuth, async (req: AuthenticatedRequest, res: Respo
     });
   } catch (err) {
     await updateRun(run.id, "failed", runIdentity).catch((e) =>
-      console.error("[trusted-leads-service] failed to mark run failed:", e)
+      console.error("[apify-service] failed to mark run failed:", e)
     );
     throw err;
   }
@@ -253,7 +253,7 @@ router.post("/resolve", serviceAuth, async (req: AuthenticatedRequest, res: Resp
       provisioned = await provisionAndAuthorize(
         run.id,
         items,
-        `trusted-leads resolve (${misses.length} leads)`,
+        `apify-service resolve (${misses.length} leads)`,
         runIdentity
       );
       const result = await resolveEmails(token, misses, Boolean(includeInferred));
@@ -300,7 +300,7 @@ router.post("/resolve", serviceAuth, async (req: AuthenticatedRequest, res: Resp
     });
   } catch (err) {
     await updateRun(run.id, "failed", runIdentity).catch((e) =>
-      console.error("[trusted-leads-service] failed to mark run failed:", e)
+      console.error("[apify-service] failed to mark run failed:", e)
     );
     throw err;
   }

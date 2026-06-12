@@ -5,13 +5,13 @@
 
 function required(name: string): string {
   const v = process.env[name];
-  if (!v) throw new Error(`[trusted-leads-service] ${name} is not set`);
+  if (!v) throw new Error(`[apify-service] ${name} is not set`);
   return v;
 }
 
 export const config = {
   get databaseUrl(): string {
-    return required("TRUSTED_LEADS_SERVICE_DATABASE_URL");
+    return required("APIFY_SERVICE_DATABASE_URL");
   },
   get keyServiceUrl(): string {
     return required("KEY_SERVICE_URL");
