@@ -40,32 +40,32 @@ Sentry.setupExpressErrorHandler(app);
 
 app.use(
   (err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-    console.error("[trusted-leads-service] Unhandled error:", err);
+    console.error("[apify-service] Unhandled error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 );
 
 if (process.env.NODE_ENV !== "test") {
-  const dbUrl = process.env.TRUSTED_LEADS_SERVICE_DATABASE_URL;
+  const dbUrl = process.env.APIFY_SERVICE_DATABASE_URL;
   const startServer = () => {
     app.listen(Number(PORT), "::", () => {
-      console.log(`[trusted-leads-service] running on port ${PORT}`);
+      console.log(`[apify-service] running on port ${PORT}`);
     });
   };
   if (dbUrl) {
     const migrateDb = drizzle(getSql());
     migrate(migrateDb, { migrationsFolder: "./drizzle" })
       .then(() => {
-        console.log("[trusted-leads-service] Migrations complete");
+        console.log("[apify-service] Migrations complete");
         startServer();
       })
       .catch((err) => {
-        console.error("[trusted-leads-service] Migration failed:", err);
+        console.error("[apify-service] Migration failed:", err);
         process.exit(1);
       });
   } else {
     console.warn(
-      "[trusted-leads-service] TRUSTED_LEADS_SERVICE_DATABASE_URL not set, skipping migrations"
+      "[apify-service] APIFY_SERVICE_DATABASE_URL not set, skipping migrations"
     );
     startServer();
   }

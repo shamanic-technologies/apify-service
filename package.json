@@ -1,5 +1,5 @@
 {
-  "name": "trusted-leads-service",
+  "name": "apify-service",
   "version": "0.1.0",
   "private": true,
   "type": "module",

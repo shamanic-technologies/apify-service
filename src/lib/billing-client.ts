@@ -38,7 +38,7 @@ export async function authorize(
     });
   } catch (err) {
     throw new Error(
-      `[trusted-leads-service] billing-service authorize fetch failed: ${
+      `[apify-service] billing-service authorize fetch failed: ${
         err instanceof Error ? err.message : String(err)
       }`
     );
@@ -46,7 +46,7 @@ export async function authorize(
   if (!res.ok) {
     const text = await res.text();
     throw new Error(
-      `[trusted-leads-service] billing-service authorize failed (${res.status}): ${text}`
+      `[apify-service] billing-service authorize failed (${res.status}): ${text}`
     );
   }
   const data = (await res.json()) as {
@@ -56,7 +56,7 @@ export async function authorize(
   };
   if (!data.sufficient) {
     throw new Error(
-      `[trusted-leads-service] insufficient balance (balance=${data.balance_cents}¢, required=${data.required_cents}¢)`
+      `[apify-service] insufficient balance (balance=${data.balance_cents}¢, required=${data.required_cents}¢)`
     );
   }
 }

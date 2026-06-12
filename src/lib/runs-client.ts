@@ -51,7 +51,7 @@ async function runsRequest<T>(
   if (!response.ok) {
     const errorText = await response.text();
     throw new Error(
-      `[trusted-leads-service] runs-service ${method} ${path} failed: ${response.status} - ${errorText}`
+      `[apify-service] runs-service ${method} ${path} failed: ${response.status} - ${errorText}`
     );
   }
   return response.json() as Promise<T>;

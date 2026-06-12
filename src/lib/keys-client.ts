@@ -22,7 +22,7 @@ export async function getPlatformKey(
     res = await fetch(url, {
       headers: {
         "X-API-Key": config.keyServiceApiKey,
-        "X-Caller-Service": "trusted-leads",
+        "X-Caller-Service": "apify-service",
         "X-Caller-Method": caller.callerMethod,
         "X-Caller-Path": caller.callerPath,
       },
@@ -30,7 +30,7 @@ export async function getPlatformKey(
     });
   } catch (err) {
     throw new Error(
-      `[trusted-leads-service] key-service platform decrypt fetch failed: ${
+      `[apify-service] key-service platform decrypt fetch failed: ${
         err instanceof Error ? err.message : String(err)
       }`
     );
@@ -38,13 +38,13 @@ export async function getPlatformKey(
   if (!res.ok) {
     const text = await res.text();
     throw new Error(
-      `[trusted-leads-service] key-service platform decrypt for "${provider}" failed (${res.status}): ${text}`
+      `[apify-service] key-service platform decrypt for "${provider}" failed (${res.status}): ${text}`
     );
   }
   const data = (await res.json()) as { key: string };
   if (!data.key) {
     throw new Error(
-      `[trusted-leads-service] key-service returned no key for "${provider}"`
+      `[apify-service] key-service returned no key for "${provider}"`
     );
   }
   return data.key;

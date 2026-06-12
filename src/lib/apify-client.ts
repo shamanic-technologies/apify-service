@@ -38,7 +38,7 @@ async function apifyFetch(
     });
   } catch (err) {
     throw new Error(
-      `[trusted-leads-service] Apify request ${url} fetch failed: ${
+      `[apify-service] Apify request ${url} fetch failed: ${
         err instanceof Error ? err.message : String(err)
       }`
     );
@@ -46,7 +46,7 @@ async function apifyFetch(
   if (!res.ok) {
     const text = await res.text();
     throw new Error(
-      `[trusted-leads-service] Apify request ${url} failed (${res.status}): ${text}`
+      `[apify-service] Apify request ${url} failed (${res.status}): ${text}`
     );
   }
   return res.json();
@@ -83,7 +83,7 @@ export async function runActor(
   while (!TERMINAL.has(run.status)) {
     if (Date.now() > deadline) {
       throw new Error(
-        `[trusted-leads-service] Apify run ${run.id} (${actorId}) did not finish within ${MAX_WAIT_MS}ms`
+        `[apify-service] Apify run ${run.id} (${actorId}) did not finish within ${MAX_WAIT_MS}ms`
       );
     }
     await sleep(POLL_INTERVAL_MS);
@@ -96,7 +96,7 @@ export async function runActor(
 
   if (run.status !== "SUCCEEDED") {
     throw new Error(
-      `[trusted-leads-service] Apify run ${run.id} (${actorId}) ended with status ${run.status}`
+      `[apify-service] Apify run ${run.id} (${actorId}) ended with status ${run.status}`
     );
   }
 

@@ -1,7 +1,7 @@
 {
   "openapi": "3.0.0",
   "info": {
-    "title": "trusted-leads-service",
+    "title": "apify-service",
     "version": "0.1.0",
     "description": "Verified-email lead provider backed by the Apify waterfall (pipelinelabs + microworlds, clearpath inferred fallback). Replaces Apollo for lead search + verified email."
   },
