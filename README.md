@@ -27,12 +27,21 @@ All endpoints (except health/openapi) require `x-org-id` + `x-user-id` headers. 
 
 ## Cost tracking
 
-The Apify token is a **platform** key (resolved via key-service `/keys/platform/apify/decrypt`). Every request:
-1. `authorize` org affordability (billing-service) on the worst-case quantity.
-2. Runs the waterfall.
-3. Declares one `actual` cost (`apify-verified-lead`, `costSource:"platform"`, quantity = verified leads delivered) in runs-service. Fail-loud.
+The Apify token is a **platform** key (resolved via key-service `/keys/platform/apify/decrypt`). Cost is tracked **per actor** (each actor has its own Apify price). Every request follows provision → authorize → execute → actualize:
+1. **Provision** worst-case holds in runs-service (`status:"provisioned"`) — validates the cost names are declarable *before* any spend.
+2. **Authorize** org affordability (billing-service).
+3. **Execute** the waterfall.
+4. **Actualize** the real per-actor counts (`status:"actual"`) + cancel the provisioned holds. Fail-loud throughout.
 
-> ⚠️ The cost name `apify-verified-lead` must be registered in **costs-service** before prod use, or runs-service 422-rejects the cost declaration.
+Per-actor cost names (`costSource:"platform"`):
+
+| Source | Cost name |
+|--------|-----------|
+| pipelinelabs | `apify-pipelinelabs-lead` |
+| microworlds | `apify-microworlds-lead` |
+| clearpath | `apify-clearpath-lead` |
+
+> ⚠️ All three cost names must be registered in **costs-service** before prod use, or runs-service 422-rejects the provision (fails the request before spending).
 
 ## Env
 

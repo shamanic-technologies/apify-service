@@ -5,8 +5,12 @@ import { leadSearches, leads as leadsTable } from "../db/schema.js";
 import { serviceAuth, AuthenticatedRequest } from "../middleware/auth.js";
 import { SearchRequestSchema, ResolveRequestSchema } from "../schemas.js";
 import { getPlatformKey } from "../lib/keys-client.js";
-import { createRun, updateRun, addCosts, IdentityHeaders } from "../lib/runs-client.js";
-import { authorize } from "../lib/billing-client.js";
+import { createRun, updateRun, IdentityHeaders, RunCost } from "../lib/runs-client.js";
+import {
+  COST_NAME_BY_SOURCE,
+  provisionAndAuthorize,
+  actualizeAndCancel,
+} from "../lib/cost-tracking.js";
 import {
   searchVerifiedLeads,
   resolveEmails,
@@ -16,7 +20,6 @@ import {
 
 const router = Router();
 
-const COST_NAME = "apify-verified-lead";
 const SERVICE_NAME = "trusted-leads";
 const CACHE_MAX_AGE_MS = 365 * 24 * 60 * 60 * 1000; // 12 months
 
@@ -124,9 +127,14 @@ router.post("/search", serviceAuth, async (req: AuthenticatedRequest, res: Respo
   const runIdentity: IdentityHeaders = { ...identity, runId: run.id };
 
   try {
-    // Affordability check on the worst case (the requested limit).
-    await authorize(
-      [{ costName: COST_NAME, quantity: filters.limit }],
+    // PROVISION worst-case (both actors may each return `limit`) + AUTHORIZE,
+    // BEFORE any Apify spend. Fail-loud if a cost name isn't declarable.
+    const provisioned = await provisionAndAuthorize(
+      run.id,
+      [
+        { costName: COST_NAME_BY_SOURCE.pipelinelabs, quantity: filters.limit },
+        { costName: COST_NAME_BY_SOURCE.microworlds, quantity: filters.limit },
+      ],
       `trusted-leads search (${filters.limit} leads)`,
       runIdentity
     );
@@ -158,12 +166,8 @@ router.post("/search", serviceAuth, async (req: AuthenticatedRequest, res: Respo
         });
     }
 
-    // Bill per verified lead actually delivered. Fail-loud on declaration error.
-    await addCosts(
-      run.id,
-      [{ costName: COST_NAME, costSource: "platform", quantity: leads.length, status: "actual" }],
-      runIdentity
-    );
+    // ACTUALIZE per-actor real counts + cancel the provisioned holds.
+    await actualizeAndCancel(run.id, leads, provisioned, runIdentity);
 
     await updateRun(run.id, "completed", runIdentity);
 
@@ -236,9 +240,19 @@ router.post("/resolve", serviceAuth, async (req: AuthenticatedRequest, res: Resp
     }
 
     let resolved: NormalizedLead[] = [];
+    let provisioned: RunCost[] = [];
     if (misses.length > 0) {
-      await authorize(
-        [{ costName: COST_NAME, quantity: misses.length }],
+      // Worst case: any tier could resolve all misses. clearpath only when opted in.
+      const items = [
+        { costName: COST_NAME_BY_SOURCE.pipelinelabs, quantity: misses.length },
+        { costName: COST_NAME_BY_SOURCE.microworlds, quantity: misses.length },
+      ];
+      if (includeInferred) {
+        items.push({ costName: COST_NAME_BY_SOURCE.clearpath, quantity: misses.length });
+      }
+      provisioned = await provisionAndAuthorize(
+        run.id,
+        items,
         `trusted-leads resolve (${misses.length} leads)`,
         runIdentity
       );
@@ -269,12 +283,10 @@ router.post("/resolve", serviceAuth, async (req: AuthenticatedRequest, res: Resp
         .onConflictDoNothing({
           target: [leadsTable.orgId, leadsTable.companyDomain, leadsTable.firstName, leadsTable.lastName],
         });
-      // Bill only the newly resolved leads (cache hits are free).
-      await addCosts(
-        run.id,
-        [{ costName: COST_NAME, costSource: "platform", quantity: resolved.length, status: "actual" }],
-        runIdentity
-      );
+    }
+    // ACTUALIZE real per-actor costs (cache hits are free) + cancel holds.
+    if (provisioned.length > 0) {
+      await actualizeAndCancel(run.id, resolved, provisioned, runIdentity);
     }
 
     await updateRun(run.id, "completed", runIdentity);
