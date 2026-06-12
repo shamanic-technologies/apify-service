@@ -13,8 +13,9 @@ Verified-email lead provider backed by the Apify waterfall (pipelinelabs + micro
 ## Architecture
 
 - `src/schemas.ts` — Zod schemas + OpenAPI registry (source of truth)
-- `src/routes/search.ts` — `POST /search`, `POST /resolve`, `GET /searches/:runId`
+- `src/routes/search.ts` — `POST /search`, `POST /resolve`, `GET /searches/:runId`, plus the gateway-parity surface: `POST /search/count` (free match-count, no credits/persistence), `GET /search/filters-prompt` (versioned filter doc for LLMs), `GET /search/reference` (accepted-value vocab)
 - `src/routes/health.ts` — health checks
+- `src/lib/filter-catalog.ts` — single source of truth for accepted filter vocab + the versioned filters-prompt (`FILTERS_SCHEMA_VERSION` hashes the filter surface)
 - `src/middleware/auth.ts` — serviceAuth (x-org-id + x-user-id, optional run-context headers)
 - `src/lib/apify-client.ts` — generic Apify run+poll runner (banner-row tolerant)
 - `src/lib/waterfall.ts` — actor inputs/mappers + search & 3-tier resolve orchestration
@@ -32,6 +33,7 @@ Verified-email lead provider backed by the Apify waterfall (pipelinelabs + micro
 - Migrations auto-run at boot; SQL is idempotent (`IF NOT EXISTS`).
 - The Apify token is a PLATFORM key. Cost is tracked PER ACTOR (provision→authorize→execute→actualize, fail-loud): `apify-pipelinelabs-lead`, `apify-microworlds-lead`, `apify-clearpath-lead` (all must exist in costs-service or the provision 422s before spend).
 - Verified = real DB email (tiers 1–2). Inferred = clearpath pattern-guess (tier 3, opt-in, tagged `source:"inferred"`). Never mix silently.
+- Search-parity surface (count / total / pagination) rides on **pipelinelabs only** — it exposes `countOnly` (free count, no leads extracted), `customOffset`, and rich filters (`annualRevenueIncludes`, `technologiesIncludes`, `fundingStageIncludes`, `companySizeIncludes`); microworlds has none, so it contributes only on page 1 (offset 0). `/search/count` does NO run/cost/persistence (zero billable leads = nothing to declare). `/search` adds optional `totalMatched`/`hasMore`/`nextOffset`. Pagination uses explicit `customOffset` + `dontSaveProgress:true` to avoid shared-platform-key progress bleed between orgs.
 
 ## Actor reference
 

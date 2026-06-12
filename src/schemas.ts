@@ -10,23 +10,59 @@ export const registry = new OpenAPIRegistry();
 
 // ─── Search ────────────────────────────────────────────────────────────────
 
+// Shared filter fields — reused by /search and /search/count.
+const filterFields = {
+  titles: z.array(z.string()).optional(),
+  seniorities: z.array(z.string()).optional(),
+  functions: z.array(z.string()).optional(),
+  locationCountries: z.array(z.string()).optional(),
+  locationStates: z.array(z.string()).optional(),
+  locationCities: z.array(z.string()).optional(),
+  companyNames: z.array(z.string()).optional(),
+  industries: z.array(z.string()).optional(),
+  companyDomains: z.array(z.string()).optional(),
+  keywords: z.array(z.string()).optional(),
+  // Rich filters (pipelinelabs-backed). See GET /search/reference for vocab.
+  companySizes: z.array(z.string()).optional(),
+  revenueRanges: z.array(z.string()).optional(),
+  fundingStages: z.array(z.string()).optional(),
+  technologies: z.array(z.string()).optional(),
+  employeeMin: z.number().int().positive().optional(),
+  employeeMax: z.number().int().positive().optional(),
+} as const;
+
 export const SearchRequestSchema = z
   .object({
-    titles: z.array(z.string()).optional(),
-    seniorities: z.array(z.string()).optional(),
-    functions: z.array(z.string()).optional(),
-    locationCountries: z.array(z.string()).optional(),
-    locationStates: z.array(z.string()).optional(),
-    locationCities: z.array(z.string()).optional(),
-    companyNames: z.array(z.string()).optional(),
-    industries: z.array(z.string()).optional(),
-    companyDomains: z.array(z.string()).optional(),
-    keywords: z.array(z.string()).optional(),
-    employeeMin: z.number().int().positive().optional(),
-    employeeMax: z.number().int().positive().optional(),
+    ...filterFields,
     limit: z.number().int().min(1).max(1000),
+    // Resume position for pagination past the first page (pipelinelabs only).
+    offset: z.number().int().min(0).optional(),
   })
   .openapi("SearchRequest");
+
+// Count: same filters, no paging. Free match-count (no credits, no persistence).
+export const SearchCountRequestSchema = z
+  .object({ ...filterFields })
+  .openapi("SearchCountRequest");
+
+export const SearchCountResponseSchema = z
+  .object({ totalMatched: z.number() })
+  .openapi("SearchCountResponse");
+
+export const FiltersPromptResponseSchema = z
+  .object({ prompt: z.string(), schemaVersion: z.string() })
+  .openapi("FiltersPromptResponse");
+
+export const ReferenceResponseSchema = z
+  .object({
+    industries: z.array(z.string()),
+    seniorities: z.array(z.string()),
+    functions: z.array(z.string()),
+    companySizes: z.array(z.string()),
+    revenueRanges: z.array(z.string()),
+    fundingStages: z.array(z.string()),
+  })
+  .openapi("ReferenceResponse");
 
 // ─── Resolve ──────────────────────────────────────────────────────────────
 
@@ -77,6 +113,12 @@ export const SearchResponseSchema = z
     searchId: z.string(),
     leadCount: z.number(),
     verifiedCount: z.number(),
+    // Total matchable across the filter set (pipelinelabs probe), independent
+    // of the returned page — lets the caller tell whether more results exist.
+    totalMatched: z.number().optional(),
+    hasMore: z.boolean().optional(),
+    // Offset to pass back on the next /search call to fetch the next page.
+    nextOffset: z.number().optional(),
     leads: z.array(LeadSchema),
   })
   .openapi("SearchResponse");
@@ -122,6 +164,46 @@ registry.registerPath({
     200: {
       description: "Resolved leads",
       content: { "application/json": { schema: ResolveResponseSchema } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/search/count",
+  summary:
+    "Count people matching a filter set — zero credit spend, zero persistence (pipelinelabs countOnly).",
+  request: {
+    body: { content: { "application/json": { schema: SearchCountRequestSchema } } },
+  },
+  responses: {
+    200: {
+      description: "Match count",
+      content: { "application/json": { schema: SearchCountResponseSchema } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/search/filters-prompt",
+  summary: "Stable, versioned description of apify's accepted search filters (for LLM callers).",
+  responses: {
+    200: {
+      description: "Filter-shape prompt + schema version",
+      content: { "application/json": { schema: FiltersPromptResponseSchema } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/search/reference",
+  summary: "Accepted-value vocabulary for the enum filters (industries, seniorities, etc.).",
+  responses: {
+    200: {
+      description: "Accepted filter vocabularies",
+      content: { "application/json": { schema: ReferenceResponseSchema } },
     },
   },
 });

@@ -11,7 +11,7 @@ const doc = generator.generateDocument({
   openapi: "3.0.0",
   info: {
     title: "apify-service",
-    version: "0.1.0",
+    version: "0.2.0",
     description:
       "Verified-email lead provider backed by the Apify waterfall (pipelinelabs + microworlds, clearpath inferred fallback). Replaces Apollo for lead search + verified email.",
   },
