@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { SearchRequestSchema, ResolveRequestSchema } from "../../src/schemas.js";
+import {
+  SearchRequestSchema,
+  ResolveRequestSchema,
+  SearchCountRequestSchema,
+} from "../../src/schemas.js";
 
 describe("SearchRequestSchema", () => {
   it("requires limit (no silent default)", () => {
@@ -15,6 +19,30 @@ describe("SearchRequestSchema", () => {
   });
   it("rejects limit over 1000", () => {
     expect(SearchRequestSchema.safeParse({ limit: 5000 }).success).toBe(false);
+  });
+  it("accepts optional offset and rich filters (additive)", () => {
+    const r = SearchRequestSchema.safeParse({
+      limit: 100,
+      offset: 200,
+      companySizes: ["51-200"],
+      revenueRanges: ["1m_10m"],
+      fundingStages: ["series_a"],
+      technologies: ["HubSpot"],
+    });
+    expect(r.success).toBe(true);
+  });
+  it("rejects a negative offset", () => {
+    expect(SearchRequestSchema.safeParse({ limit: 50, offset: -1 }).success).toBe(false);
+  });
+});
+
+describe("SearchCountRequestSchema", () => {
+  it("accepts a filter set with no limit (count needs no paging)", () => {
+    const r = SearchCountRequestSchema.safeParse({ titles: ["CMO"], industries: ["Banking"] });
+    expect(r.success).toBe(true);
+  });
+  it("accepts an empty filter set", () => {
+    expect(SearchCountRequestSchema.safeParse({}).success).toBe(true);
   });
 });
 

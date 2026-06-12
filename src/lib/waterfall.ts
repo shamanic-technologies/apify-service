@@ -16,10 +16,20 @@ export interface SearchFilters {
   industries?: string[];
   companyDomains?: string[];
   keywords?: string[];
+  // Rich filters (pipelinelabs-backed; absent on microworlds).
+  companySizes?: string[];
+  revenueRanges?: string[];
+  fundingStages?: string[];
+  technologies?: string[];
   employeeMin?: number;
   employeeMax?: number;
   limit: number;
+  /** Resume position for pagination past the first page (pipelinelabs only). */
+  offset?: number;
 }
+
+/** Count-only filter set: same filters as a search, minus paging fields. */
+export type CountFilters = Omit<SearchFilters, "limit" | "offset">;
 
 export interface LeadInput {
   firstName: string;
@@ -178,7 +188,8 @@ function mapClearpath(row: Record<string, unknown>): NormalizedLead | null {
 
 // ─── input builders ──────────────────────────────────────────────────────────
 
-function plSearchInput(f: SearchFilters): Record<string, unknown> {
+/** Shared pipelinelabs filter map (no paging / no run-mode keys). */
+function plFilterInput(f: CountFilters): Record<string, unknown> {
   return compact({
     personTitleIncludes: f.titles,
     seniorityIncludes: f.seniorities,
@@ -190,12 +201,32 @@ function plSearchInput(f: SearchFilters): Record<string, unknown> {
     companyIndustryIncludes: f.industries,
     companyDomainIncludes: f.companyDomains,
     companyKeywordIncludes: f.keywords,
+    companySizeIncludes: f.companySizes,
+    annualRevenueIncludes: f.revenueRanges,
+    fundingStageIncludes: f.fundingStages,
+    technologiesIncludes: f.technologies,
     companyEmployeeMin: f.employeeMin,
     companyEmployeeMax: f.employeeMax,
     hasEmail: true,
     emailStatusIncludes: ["deliverable"],
-    totalResults: f.limit,
   });
+}
+
+export function plSearchInput(f: SearchFilters): Record<string, unknown> {
+  return compact({
+    ...plFilterInput(f),
+    totalResults: f.limit,
+    // Explicit cursor: we own pagination via customOffset. dontSaveProgress
+    // avoids polluting the actor's shared-key saved progress (two orgs with
+    // identical filters would otherwise resume each other's position).
+    customOffset: f.offset,
+    dontSaveProgress: f.offset !== undefined ? true : undefined,
+  });
+}
+
+/** pipelinelabs count-only input: returns the match count, extracts no leads, no charge. */
+export function plCountInput(f: CountFilters): Record<string, unknown> {
+  return compact({ ...plFilterInput(f), countOnly: true });
 }
 
 function mwSearchInput(f: SearchFilters): Record<string, unknown> {
@@ -219,6 +250,75 @@ export interface WaterfallResult {
   apifyUsdSpent: number;
 }
 
+export interface SearchResult extends WaterfallResult {
+  /**
+   * Total leads matching the filter set across the pipelinelabs source
+   * (the count probe), independent of the returned page. Lets the caller tell
+   * whether more results exist beyond the page. pipelinelabs-only signal.
+   */
+  totalMatched: number;
+}
+
+// Candidate keys an actor count-row may carry, in priority order.
+const COUNT_KEYS = [
+  "count",
+  "totalCount",
+  "total_count",
+  "total",
+  "matchCount",
+  "match_count",
+  "totalResults",
+  "total_results",
+  "availableCount",
+  "available_count",
+  "leadCount",
+  "lead_count",
+  "matches",
+];
+
+/**
+ * Parse a match count from a pipelinelabs `countOnly` dataset. The actor's
+ * count-row field name isn't contractually documented, so we scan known keys,
+ * then fall back to a sole numeric field. Fail-loud if no count is found.
+ */
+export function extractCount(items: Array<Record<string, unknown>>): number {
+  for (const row of items) {
+    for (const k of COUNT_KEYS) {
+      const v = row[k];
+      if (typeof v === "number" && Number.isFinite(v)) return v;
+      if (typeof v === "string" && v.trim() !== "" && Number.isFinite(Number(v))) {
+        return Number(v);
+      }
+    }
+  }
+  // Fallback: a single row whose only numeric value is the count.
+  for (const row of items) {
+    const nums = Object.values(row).filter(
+      (v) => typeof v === "number" && Number.isFinite(v)
+    ) as number[];
+    if (nums.length === 1) return nums[0];
+  }
+  throw new Error(
+    `[apify-service] countOnly run returned no recognizable count field. Rows: ${JSON.stringify(
+      items
+    ).slice(0, 500)}`
+  );
+}
+
+/**
+ * COUNT: how many leads match the filter set, via the pipelinelabs `countOnly`
+ * mode — no leads extracted, no charge ("$0.00001 per run, effectively
+ * nothing"). Used by POST /search/count (no run / no cost / no persistence) and
+ * as the totalMatched probe inside searchVerifiedLeads.
+ */
+export async function countMatches(
+  token: string,
+  filters: CountFilters
+): Promise<number> {
+  const r = await runActor(token, ACTOR_PIPELINELABS, plCountInput(filters));
+  return extractCount(r.items);
+}
+
 function dedupe(leads: NormalizedLead[]): NormalizedLead[] {
   const seen = new Set<string>();
   const out: NormalizedLead[] = [];
@@ -239,16 +339,28 @@ function dedupe(leads: NormalizedLead[]): NormalizedLead[] {
 export async function searchVerifiedLeads(
   token: string,
   filters: SearchFilters
-): Promise<WaterfallResult> {
-  const [pl, mw] = await Promise.all([
+): Promise<SearchResult> {
+  const paginating = filters.offset !== undefined && filters.offset > 0;
+
+  // Always run the pipelinelabs page + a near-free countOnly probe (totalMatched).
+  // microworlds has no offset support, so it only contributes on the first page.
+  const [pl, count, mw] = await Promise.all([
     runActor(token, ACTOR_PIPELINELABS, plSearchInput(filters)),
-    runActor(token, ACTOR_MICROWORLDS, mwSearchInput(filters)),
+    countMatches(token, filters),
+    paginating
+      ? Promise.resolve({ items: [], chargedEventCounts: {}, usageTotalUsd: 0 })
+      : runActor(token, ACTOR_MICROWORLDS, mwSearchInput(filters)),
   ]);
+
   const leads = dedupe([
     ...pl.items.map(mapPipelinelabs).filter((x): x is NormalizedLead => x !== null),
     ...mw.items.map(mapMicroworlds).filter((x): x is NormalizedLead => x !== null),
   ]);
-  return { leads, apifyUsdSpent: pl.usageTotalUsd + mw.usageTotalUsd };
+  return {
+    leads,
+    apifyUsdSpent: pl.usageTotalUsd + mw.usageTotalUsd,
+    totalMatched: count,
+  };
 }
 
 const norm = (s: string) => s.trim().toLowerCase();

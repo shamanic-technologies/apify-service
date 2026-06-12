@@ -3,7 +3,11 @@ import { and, eq, gte } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { leadSearches, leads as leadsTable } from "../db/schema.js";
 import { serviceAuth, AuthenticatedRequest } from "../middleware/auth.js";
-import { SearchRequestSchema, ResolveRequestSchema } from "../schemas.js";
+import {
+  SearchRequestSchema,
+  ResolveRequestSchema,
+  SearchCountRequestSchema,
+} from "../schemas.js";
 import { getPlatformKey } from "../lib/keys-client.js";
 import { createRun, updateRun, IdentityHeaders, RunCost } from "../lib/runs-client.js";
 import {
@@ -14,9 +18,15 @@ import {
 import {
   searchVerifiedLeads,
   resolveEmails,
+  countMatches,
   NormalizedLead,
   LeadInput,
 } from "../lib/waterfall.js";
+import {
+  buildFiltersPromptText,
+  FILTERS_SCHEMA_VERSION,
+  filterCatalog,
+} from "../lib/filter-catalog.js";
 
 const router = Router();
 
@@ -139,7 +149,14 @@ router.post("/search", serviceAuth, async (req: AuthenticatedRequest, res: Respo
       runIdentity
     );
 
-    const { leads } = await searchVerifiedLeads(token, filters);
+    const { leads, totalMatched } = await searchVerifiedLeads(token, filters);
+
+    // Paging signals (gaps 2 + 3). The cursor advances over the pipelinelabs
+    // stream by the requested page size; more exist if the total exceeds it.
+    const offsetBase = filters.offset ?? 0;
+    const consumed = offsetBase + filters.limit;
+    const hasMore = totalMatched > consumed;
+    const nextOffset = hasMore ? consumed : undefined;
 
     const [searchRow] = await db
       .insert(leadSearches)
@@ -175,6 +192,9 @@ router.post("/search", serviceAuth, async (req: AuthenticatedRequest, res: Respo
       searchId: searchRow.id,
       leadCount: leads.length,
       verifiedCount: leads.length,
+      totalMatched,
+      hasMore,
+      ...(nextOffset !== undefined ? { nextOffset } : {}),
       leads: leads.map(toApiLead),
     });
   } catch (err) {
@@ -304,6 +324,48 @@ router.post("/resolve", serviceAuth, async (req: AuthenticatedRequest, res: Resp
     );
     throw err;
   }
+});
+
+// ─── POST /search/count ───────────────────────────────────────────────────────
+// Free match-count for a filter set: zero credit spend, zero persistence.
+// Backed by the pipelinelabs `countOnly` mode (extracts no leads, no charge),
+// so — unlike /search — there is NO run, NO cost declaration, and NO DB write:
+// zero billable leads = nothing to declare under the per-lead cost model.
+
+router.post("/search/count", serviceAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const parsed = SearchCountRequestSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid request", details: parsed.error.issues });
+  }
+
+  const token = await getPlatformKey("apify", {
+    callerMethod: "POST",
+    callerPath: "/search/count",
+  });
+
+  const totalMatched = await countMatches(token, parsed.data);
+  return res.json({ totalMatched });
+});
+
+// ─── GET /search/filters-prompt ───────────────────────────────────────────────
+// Stable, versioned description of accepted filters for LLM callers (gap 4).
+
+router.get("/search/filters-prompt", serviceAuth, async (_req: AuthenticatedRequest, res: Response) => {
+  return res.json({ prompt: buildFiltersPromptText(), schemaVersion: FILTERS_SCHEMA_VERSION });
+});
+
+// ─── GET /search/reference ────────────────────────────────────────────────────
+// Accepted-value vocabulary for the enum filters (gap 5).
+
+router.get("/search/reference", serviceAuth, async (_req: AuthenticatedRequest, res: Response) => {
+  return res.json({
+    industries: filterCatalog.industries,
+    seniorities: filterCatalog.seniorities,
+    functions: filterCatalog.functions,
+    companySizes: filterCatalog.companySizes,
+    revenueRanges: filterCatalog.revenueRanges,
+    fundingStages: filterCatalog.fundingStages,
+  });
 });
 
 // ─── GET /searches/:runId ─────────────────────────────────────────────────────
