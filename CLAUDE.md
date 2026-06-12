@@ -2,6 +2,10 @@
 
 Verified-email lead provider backed by the Apify waterfall (pipelinelabs + microworlds DB sources, clearpath inferred fallback). Replaces Apollo for lead search + verified email. Cost tracking via runs-service, platform Apify key via key-service.
 
+## Release
+
+Prod-only repo — **no `staging` branch**. Ship via `release.sh hotfix`. It merges the PR, tags, and creates the release (all succeed), then **fails at step 4 "Sync main into staging" → exits 1** because there is no staging branch, so step 5 (delete branch) is skipped too. The exit-1 is NOT a failed ship: verify `gh pr view <N> --json state` = `MERGED` + the tag exists, then delete the feature branch manually (`git push origin --delete <branch>`). Do not re-run release.sh on this exit-1 (the tag already exists → it would fail earlier).
+
 ## Commands
 
 - `pnpm test` — Vitest
