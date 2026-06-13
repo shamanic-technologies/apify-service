@@ -208,7 +208,9 @@ function plFilterInput(f: CountFilters): Record<string, unknown> {
     companyEmployeeMin: f.employeeMin,
     companyEmployeeMax: f.employeeMax,
     hasEmail: true,
-    emailStatusIncludes: ["deliverable"],
+    // Actor enum is "verified" / "unverified" only — "deliverable" 400s
+    // (invalid-input). Verified-only guarantee maps to ["verified"].
+    emailStatusIncludes: ["verified"],
   });
 }
 

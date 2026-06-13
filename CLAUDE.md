@@ -41,6 +41,6 @@ Prod-only repo — **no `staging` branch**. Ship via `release.sh hotfix`. It mer
 
 ## Actor reference
 
-- pipelinelabs `pipelinelabs~lead-scraper-apollo-zoominfo-lusha-ppe` — verified-only via `emailStatusIncludes:["deliverable"]` + `hasEmail:true`; name+domain lookup via `personFirstNameIncludes`/`personLastNameIncludes`/`companyDomainIncludes`.
+- pipelinelabs `pipelinelabs~lead-scraper-apollo-zoominfo-lusha-ppe` — verified-only via `emailStatusIncludes:["verified"]` + `hasEmail:true` (actor enum is `"verified"`/`"unverified"` only — `"deliverable"` 400s); name+domain lookup via `personFirstNameIncludes`/`personLastNameIncludes`/`companyDomainIncludes`.
 - microworlds `microworlds~leads-finder` — verified-only via `email_status:["verified"]` + `contact_email_exclude_catch_all_domains:true`.
 - clearpath `clearpath~email-finder-api` — `people:[{firstName,surname,domain}]`, `mode:"optimized"`; accept only `isSafeToSend && !isCatchAll`.

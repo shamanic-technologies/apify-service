@@ -97,6 +97,17 @@ describe("plSearchInput / plCountInput", () => {
     expect(input.totalResults).toBeUndefined();
     expect(input.companyIndustryIncludes).toEqual(["Banking"]);
   });
+
+  it("both builders pin the actor's verified-only enum (not 'deliverable')", () => {
+    // Actor rejects any emailStatusIncludes outside "verified" / "unverified"
+    // with a 400 invalid-input — guards against the #9 regression.
+    const count = plCountInput({ titles: ["CEO"] });
+    const search = plSearchInput({ titles: ["CEO"], limit: 25 });
+    expect(count.emailStatusIncludes).toEqual(["verified"]);
+    expect(count.hasEmail).toBe(true);
+    expect(search.emailStatusIncludes).toEqual(["verified"]);
+    expect(search.hasEmail).toBe(true);
+  });
 });
 
 describe("extractCount", () => {
