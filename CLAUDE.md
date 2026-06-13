@@ -4,7 +4,7 @@ Verified-email lead provider backed by the Apify waterfall (pipelinelabs + micro
 
 ## Release
 
-Prod-only repo — **no `staging` branch**. Ship via `release.sh hotfix`. It merges the PR, tags, and creates the release (all succeed), then **fails at step 4 "Sync main into staging" → exits 1** because there is no staging branch, so step 5 (delete branch) is skipped too. The exit-1 is NOT a failed ship: verify `gh pr view <N> --json state` = `MERGED` + the tag exists, then delete the feature branch manually (`git push origin --delete <branch>`). Do not re-run release.sh on this exit-1 (the tag already exists → it would fail earlier).
+Prod-only repo — **no `staging` branch**. Ship via `release.sh hotfix`. Run non-interactively as `release.sh --yes hotfix <branch> "<msg>"` — the `--yes` flag MUST come **before** the subcommand (it's parsed in the global-flag loop; placed after, it's swallowed as a positional arg and the script hangs/aborts at the `read -p "Continue?"` prompt). It reuses an existing PR for `<branch>` if one is already open. It merges the PR, tags, and creates the release (all succeed), then **fails at step 4 "Sync main into staging" → exits 1** because there is no staging branch, so step 5 (delete branch) is skipped too. The exit-1 is NOT a failed ship: verify `gh pr view <N> --json state` = `MERGED` + the tag exists, then delete the feature branch manually (`git push origin --delete <branch>`). Do not re-run release.sh on this exit-1 (the tag already exists → it would fail earlier).
 
 ## Commands
 
