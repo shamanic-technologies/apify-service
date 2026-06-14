@@ -56,19 +56,17 @@ export type LeadSource = "pipelinelabs" | "microworlds" | "clearpath";
 export const ENABLED_SOURCES: readonly LeadSource[] = ["pipelinelabs"];
 
 /**
- * Apify charged-event counts aggregated per source, keyed by the actor's own
- * event name (e.g. pipelinelabs "apify-actor-start" / "lead-returned"). Billed
- * VERBATIM by cost-tracking — this is the 100%-passthrough record: every event
- * Apify charges us becomes a declared cost.
+ * Number of Apify actor RUNS we executed per source — the basis for billing the
+ * per-run `actor-start` fee (100% passthrough: one start charged per run).
+ *
+ * We count runs OURSELVES rather than reading the run's `chargedEventCounts`,
+ * because that field is unreliable for these actors — it comes back `null` /
+ * empty even when Apify did charge per-lead + per-start (verified live
+ * 2026-06-14: a run with `usageTotalUsd: 0.10001` = start + 100 leads still
+ * reports `chargedEventCounts: null`). Leads are billed from the delivered count
+ * (see cost-tracking.actualItemsBySource); runs are billed from this count.
  */
-export type ChargedEventsBySource = Partial<Record<LeadSource, Record<string, number>>>;
-
-/** Accumulate Apify charged-event counts from one run into a running total. */
-function addEventCounts(into: Record<string, number>, from: Record<string, number>): void {
-  for (const [event, count] of Object.entries(from)) {
-    into[event] = (into[event] ?? 0) + count;
-  }
-}
+export type RunsBySource = Partial<Record<LeadSource, number>>;
 
 export interface NormalizedLead {
   firstName?: string;
@@ -281,8 +279,8 @@ export interface WaterfallResult {
   leads: NormalizedLead[];
   /** Apify usage in USD across all actor runs (observability, not billing). */
   apifyUsdSpent: number;
-  /** Charged events to bill 100% through to the org (start + per-lead). */
-  chargedEvents: ChargedEventsBySource;
+  /** Runs executed per source — basis for the per-run actor-start cost. */
+  runsBySource: RunsBySource;
 }
 
 export interface SearchResult extends WaterfallResult {
@@ -386,19 +384,17 @@ export async function searchVerifiedLeads(
 
   const [pl, countRun, mw] = await Promise.all([
     runActor(token, ACTOR_PIPELINELABS, plSearchInput(filters)),
-    // Run the countOnly probe directly (not via countMatches) so we capture its
-    // charged actor-start event and bill it through too.
+    // Run the countOnly probe directly (not via countMatches) so its actor-start
+    // run is counted and billed through too.
     runActor(token, ACTOR_PIPELINELABS, plCountInput(filters)),
     runMicroworlds
       ? runActor(token, ACTOR_MICROWORLDS, mwSearchInput(filters))
       : Promise.resolve({ items: [], chargedEventCounts: {}, usageTotalUsd: 0 }),
   ]);
 
-  const pipelinelabs: Record<string, number> = {};
-  addEventCounts(pipelinelabs, pl.chargedEventCounts);
-  addEventCounts(pipelinelabs, countRun.chargedEventCounts);
-  const chargedEvents: ChargedEventsBySource = { pipelinelabs };
-  if (runMicroworlds) chargedEvents.microworlds = { ...mw.chargedEventCounts };
+  // Two pipelinelabs runs (extraction + count probe), each a billable start.
+  const runsBySource: RunsBySource = { pipelinelabs: 2 };
+  if (runMicroworlds) runsBySource.microworlds = 1;
 
   // Cap to exactly `limit`: never return or bill more leads than requested.
   const leads = dedupe([
@@ -410,7 +406,7 @@ export async function searchVerifiedLeads(
     leads,
     apifyUsdSpent: pl.usageTotalUsd + countRun.usageTotalUsd + mw.usageTotalUsd,
     totalMatched: extractCount(countRun.items),
-    chargedEvents,
+    runsBySource,
   };
 }
 
@@ -430,14 +426,13 @@ export async function resolveEmails(
   includeInferred: boolean
 ): Promise<WaterfallResult> {
   let apifyUsd = 0;
-  const chargedEvents: ChargedEventsBySource = {};
+  // tier 1 runs pipelinelabs once per input (a billable start each).
+  const runsBySource: RunsBySource = { pipelinelabs: inputs.length };
   const resolved = new Map<number, NormalizedLead>();
   const keyOf = (i: LeadInput) => `${norm(i.firstName)}|${norm(i.lastName)}|${norm(i.companyDomain)}`;
 
   // tier 1: pipelinelabs per lead (bounded concurrency). pipelinelabs actor-start
   // is ~$0.00001 so a run-per-lead is cheap here (NOT true of the other actors).
-  const pipelinelabs: Record<string, number> = {};
-  chargedEvents.pipelinelabs = pipelinelabs;
   await mapPool(inputs, 8, async (lead, idx) => {
     const r = await runActor(token, ACTOR_PIPELINELABS, {
       personFirstNameIncludes: [lead.firstName],
@@ -447,7 +442,6 @@ export async function resolveEmails(
       totalResults: 5,
     });
     apifyUsd += r.usageTotalUsd;
-    addEventCounts(pipelinelabs, r.chargedEventCounts);
     const match = r.items
       .map(mapPipelinelabs)
       .find(
@@ -460,11 +454,10 @@ export async function resolveEmails(
   // tier 2: microworlds by domain for the misses, matched on name. DISABLED
   // unless re-enabled — its $0.05/run actor-start makes per-domain runs costly.
   if (ENABLED_SOURCES.includes("microworlds")) {
-    const microworlds: Record<string, number> = {};
-    chargedEvents.microworlds = microworlds;
     const missesT1 = inputs.map((l, i) => ({ l, i })).filter(({ i }) => !resolved.has(i));
     const domains = [...new Set(missesT1.map(({ l }) => l.companyDomain))];
     if (domains.length > 0) {
+      runsBySource.microworlds = domains.length; // one run per domain
       const byDomain = new Map<string, NormalizedLead[]>();
       await mapPool(domains, 8, async (domain) => {
         const r = await runActor(token, ACTOR_MICROWORLDS, {
@@ -474,7 +467,6 @@ export async function resolveEmails(
           max_result: 25,
         });
         apifyUsd += r.usageTotalUsd;
-        addEventCounts(microworlds, r.chargedEventCounts);
         byDomain.set(
           domain,
           r.items.map(mapMicroworlds).filter((x): x is NormalizedLead => x !== null)
@@ -495,10 +487,9 @@ export async function resolveEmails(
   // unless re-enabled — it bills per pattern TESTED (hit or miss), not per email
   // found, so it under-refactures under the per-delivered-lead model.
   if (includeInferred && ENABLED_SOURCES.includes("clearpath")) {
-    const clearpath: Record<string, number> = {};
-    chargedEvents.clearpath = clearpath;
     const missesT2 = inputs.map((l, i) => ({ l, i })).filter(({ i }) => !resolved.has(i));
     if (missesT2.length > 0) {
+      runsBySource.clearpath = 1; // single batched clearpath run
       const r = await runActor(token, ACTOR_CLEARPATH, {
         people: missesT2.map(({ l }) => ({
           firstName: l.firstName,
@@ -508,7 +499,6 @@ export async function resolveEmails(
         mode: "optimized",
       });
       apifyUsd += r.usageTotalUsd;
-      addEventCounts(clearpath, r.chargedEventCounts);
       const byKey = new Map<string, NormalizedLead>();
       for (const row of r.items) {
         const m = mapClearpath(row);
@@ -526,5 +516,5 @@ export async function resolveEmails(
   const leads = [...resolved.entries()]
     .sort((a, b) => a[0] - b[0])
     .map(([, l]) => l);
-  return { leads, apifyUsdSpent: apifyUsd, chargedEvents };
+  return { leads, apifyUsdSpent: apifyUsd, runsBySource };
 }

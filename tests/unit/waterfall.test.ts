@@ -84,22 +84,17 @@ describe("searchVerifiedLeads", () => {
     expect(leads).toHaveLength(2);
   });
 
-  it("aggregates charged events from the extraction + count runs (start x2 + lead)", async () => {
+  it("counts 2 pipelinelabs runs (extraction + count probe) for actor-start billing", async () => {
     runActorMock.mockImplementation((_t: string, actorId: string, input: unknown) => {
       if (actorId === ACTOR_PIPELINELABS && isCountInput(input))
-        return Promise.resolve(result([{ count: 10 }], { "apify-actor-start": 1 }));
+        return Promise.resolve(result([{ count: 10 }]));
       if (actorId === ACTOR_PIPELINELABS)
-        return Promise.resolve(
-          result(
-            [{ firstName: "A", lastName: "B", email: "a@x.com", companyDomain: "x.com" }],
-            { "apify-actor-start": 1, "lead-returned": 1 }
-          )
-        );
+        return Promise.resolve(result([{ firstName: "A", lastName: "B", email: "a@x.com", companyDomain: "x.com" }]));
       return Promise.resolve(result([]));
     });
-    const { chargedEvents } = await searchVerifiedLeads("tok", { titles: ["CMO"], limit: 50 });
-    expect(chargedEvents.pipelinelabs).toEqual({ "apify-actor-start": 2, "lead-returned": 1 });
-    expect(chargedEvents.microworlds).toBeUndefined();
+    const { runsBySource } = await searchVerifiedLeads("tok", { titles: ["CMO"], limit: 50 });
+    expect(runsBySource.pipelinelabs).toBe(2);
+    expect(runsBySource.microworlds).toBeUndefined();
   });
 
   it("returns totalMatched from the count probe", async () => {
@@ -219,7 +214,7 @@ describe("resolveEmails", () => {
       return Promise.resolve(result([]));
     });
 
-    const { leads, chargedEvents } = await resolveEmails(
+    const { leads, runsBySource } = await resolveEmails(
       "tok",
       [{ firstName: "Dennis", lastName: "Criner", companyDomain: "douglaslabs.com" }],
       false
@@ -227,12 +222,12 @@ describe("resolveEmails", () => {
     expect(leads).toHaveLength(1);
     expect(leads[0].source).toBe("pipelinelabs");
     expect(leads[0].email).toBe("dennis.criner@douglaslabs.com");
-    expect(chargedEvents.pipelinelabs).toBeDefined();
+    expect(runsBySource.pipelinelabs).toBe(1);
   });
 
-  it("aggregates pipelinelabs charged events across the per-lead runs", async () => {
-    runActorMock.mockResolvedValue(result([], { "apify-actor-start": 1 }));
-    const { chargedEvents } = await resolveEmails(
+  it("counts one pipelinelabs run per input lead (tier 1) for actor-start billing", async () => {
+    runActorMock.mockResolvedValue(result([]));
+    const { runsBySource } = await resolveEmails(
       "tok",
       [
         { firstName: "A", lastName: "B", companyDomain: "x.com" },
@@ -240,7 +235,7 @@ describe("resolveEmails", () => {
       ],
       false
     );
-    expect(chargedEvents.pipelinelabs).toEqual({ "apify-actor-start": 2 });
+    expect(runsBySource.pipelinelabs).toBe(2);
   });
 
   it("clearpath disabled: includeInferred=true does NOT call clearpath, returns no inferred", async () => {
