@@ -39,6 +39,37 @@ export interface LeadInput {
 
 export type LeadSource = "pipelinelabs" | "microworlds" | "clearpath";
 
+/**
+ * Sources currently wired into the live waterfall. pipelinelabs is the ONLY
+ * actor whose Apify pay-per-event pricing cleanly matches our per-lead billing
+ * (start ~$0.00001/run + $0.001/lead, both passed through 100%). microworlds
+ * ($0.05/run start) and clearpath (per-pattern-tested, hit OR miss) bill events
+ * we don't refacture today, so they're disabled until their economics + cost
+ * names are sorted.
+ *
+ * To RE-ENABLE a source, all three must be done together:
+ *   1. add it here,
+ *   2. register its actor-start + per-event cost names in costs-service
+ *      (see COST_NAME_BY_EVENT in cost-tracking.ts) — else provision 422s,
+ *   3. extend the worst-case PROVISION in routes/search.ts to cover it.
+ */
+export const ENABLED_SOURCES: readonly LeadSource[] = ["pipelinelabs"];
+
+/**
+ * Apify charged-event counts aggregated per source, keyed by the actor's own
+ * event name (e.g. pipelinelabs "apify-actor-start" / "lead-returned"). Billed
+ * VERBATIM by cost-tracking — this is the 100%-passthrough record: every event
+ * Apify charges us becomes a declared cost.
+ */
+export type ChargedEventsBySource = Partial<Record<LeadSource, Record<string, number>>>;
+
+/** Accumulate Apify charged-event counts from one run into a running total. */
+function addEventCounts(into: Record<string, number>, from: Record<string, number>): void {
+  for (const [event, count] of Object.entries(from)) {
+    into[event] = (into[event] ?? 0) + count;
+  }
+}
+
 export interface NormalizedLead {
   firstName?: string;
   lastName?: string;
@@ -250,6 +281,8 @@ export interface WaterfallResult {
   leads: NormalizedLead[];
   /** Apify usage in USD across all actor runs (observability, not billing). */
   apifyUsdSpent: number;
+  /** Charged events to bill 100% through to the org (start + per-lead). */
+  chargedEvents: ChargedEventsBySource;
 }
 
 export interface SearchResult extends WaterfallResult {
@@ -334,34 +367,50 @@ function dedupe(leads: NormalizedLead[]): NormalizedLead[] {
 }
 
 /**
- * SEARCH: run both verified-only DB sources (pipelinelabs + microworlds) for the
- * same filters in parallel, normalize, dedupe by email. Both return real
- * database emails with a verification status — no pattern-guessing here.
+ * SEARCH: pull verified-email leads matching the filter set, cheapest-source
+ * first and sequential by COST — never pay two sources for the same page.
+ *
+ * Today only pipelinelabs runs (ENABLED_SOURCES): one extraction run (capped at
+ * `limit` — we never extract/bill more than requested) plus a near-free
+ * countOnly probe for `totalMatched`. microworlds only joins page 1 IF it is
+ * re-enabled. Every Apify run's charged events are aggregated and returned for
+ * 100% passthrough billing (actor-start + lead-returned).
  */
 export async function searchVerifiedLeads(
   token: string,
   filters: SearchFilters
 ): Promise<SearchResult> {
   const paginating = filters.offset !== undefined && filters.offset > 0;
+  // microworlds has no offset support, so it could only ever join page 1.
+  const runMicroworlds = ENABLED_SOURCES.includes("microworlds") && !paginating;
 
-  // Always run the pipelinelabs page + a near-free countOnly probe (totalMatched).
-  // microworlds has no offset support, so it only contributes on the first page.
-  const [pl, count, mw] = await Promise.all([
+  const [pl, countRun, mw] = await Promise.all([
     runActor(token, ACTOR_PIPELINELABS, plSearchInput(filters)),
-    countMatches(token, filters),
-    paginating
-      ? Promise.resolve({ items: [], chargedEventCounts: {}, usageTotalUsd: 0 })
-      : runActor(token, ACTOR_MICROWORLDS, mwSearchInput(filters)),
+    // Run the countOnly probe directly (not via countMatches) so we capture its
+    // charged actor-start event and bill it through too.
+    runActor(token, ACTOR_PIPELINELABS, plCountInput(filters)),
+    runMicroworlds
+      ? runActor(token, ACTOR_MICROWORLDS, mwSearchInput(filters))
+      : Promise.resolve({ items: [], chargedEventCounts: {}, usageTotalUsd: 0 }),
   ]);
 
+  const pipelinelabs: Record<string, number> = {};
+  addEventCounts(pipelinelabs, pl.chargedEventCounts);
+  addEventCounts(pipelinelabs, countRun.chargedEventCounts);
+  const chargedEvents: ChargedEventsBySource = { pipelinelabs };
+  if (runMicroworlds) chargedEvents.microworlds = { ...mw.chargedEventCounts };
+
+  // Cap to exactly `limit`: never return or bill more leads than requested.
   const leads = dedupe([
     ...pl.items.map(mapPipelinelabs).filter((x): x is NormalizedLead => x !== null),
     ...mw.items.map(mapMicroworlds).filter((x): x is NormalizedLead => x !== null),
-  ]);
+  ]).slice(0, filters.limit);
+
   return {
     leads,
-    apifyUsdSpent: pl.usageTotalUsd + mw.usageTotalUsd,
-    totalMatched: count,
+    apifyUsdSpent: pl.usageTotalUsd + countRun.usageTotalUsd + mw.usageTotalUsd,
+    totalMatched: extractCount(countRun.items),
+    chargedEvents,
   };
 }
 
@@ -381,10 +430,14 @@ export async function resolveEmails(
   includeInferred: boolean
 ): Promise<WaterfallResult> {
   let apifyUsd = 0;
+  const chargedEvents: ChargedEventsBySource = {};
   const resolved = new Map<number, NormalizedLead>();
   const keyOf = (i: LeadInput) => `${norm(i.firstName)}|${norm(i.lastName)}|${norm(i.companyDomain)}`;
 
-  // tier 1: pipelinelabs per lead (bounded concurrency).
+  // tier 1: pipelinelabs per lead (bounded concurrency). pipelinelabs actor-start
+  // is ~$0.00001 so a run-per-lead is cheap here (NOT true of the other actors).
+  const pipelinelabs: Record<string, number> = {};
+  chargedEvents.pipelinelabs = pipelinelabs;
   await mapPool(inputs, 8, async (lead, idx) => {
     const r = await runActor(token, ACTOR_PIPELINELABS, {
       personFirstNameIncludes: [lead.firstName],
@@ -394,6 +447,7 @@ export async function resolveEmails(
       totalResults: 5,
     });
     apifyUsd += r.usageTotalUsd;
+    addEventCounts(pipelinelabs, r.chargedEventCounts);
     const match = r.items
       .map(mapPipelinelabs)
       .find(
@@ -403,36 +457,46 @@ export async function resolveEmails(
     if (match) resolved.set(idx, match);
   });
 
-  // tier 2: microworlds by domain for the misses, matched on name.
-  const missesT1 = inputs.map((l, i) => ({ l, i })).filter(({ i }) => !resolved.has(i));
-  const domains = [...new Set(missesT1.map(({ l }) => l.companyDomain))];
-  if (domains.length > 0) {
-    const byDomain = new Map<string, NormalizedLead[]>();
-    await mapPool(domains, 8, async (domain) => {
-      const r = await runActor(token, ACTOR_MICROWORLDS, {
-        company_domains: [domain],
-        email_status: ["verified"],
-        contact_email_exclude_catch_all_domains: true,
-        max_result: 25,
+  // tier 2: microworlds by domain for the misses, matched on name. DISABLED
+  // unless re-enabled — its $0.05/run actor-start makes per-domain runs costly.
+  if (ENABLED_SOURCES.includes("microworlds")) {
+    const microworlds: Record<string, number> = {};
+    chargedEvents.microworlds = microworlds;
+    const missesT1 = inputs.map((l, i) => ({ l, i })).filter(({ i }) => !resolved.has(i));
+    const domains = [...new Set(missesT1.map(({ l }) => l.companyDomain))];
+    if (domains.length > 0) {
+      const byDomain = new Map<string, NormalizedLead[]>();
+      await mapPool(domains, 8, async (domain) => {
+        const r = await runActor(token, ACTOR_MICROWORLDS, {
+          company_domains: [domain],
+          email_status: ["verified"],
+          contact_email_exclude_catch_all_domains: true,
+          max_result: 25,
+        });
+        apifyUsd += r.usageTotalUsd;
+        addEventCounts(microworlds, r.chargedEventCounts);
+        byDomain.set(
+          domain,
+          r.items.map(mapMicroworlds).filter((x): x is NormalizedLead => x !== null)
+        );
       });
-      apifyUsd += r.usageTotalUsd;
-      byDomain.set(
-        domain,
-        r.items.map(mapMicroworlds).filter((x): x is NormalizedLead => x !== null)
-      );
-    });
-    for (const { l, i } of missesT1) {
-      const cand = (byDomain.get(l.companyDomain) || []).find(
-        (c) =>
-          norm(c.firstName || "") === norm(l.firstName) &&
-          norm(c.lastName || "") === norm(l.lastName)
-      );
-      if (cand) resolved.set(i, cand);
+      for (const { l, i } of missesT1) {
+        const cand = (byDomain.get(l.companyDomain) || []).find(
+          (c) =>
+            norm(c.firstName || "") === norm(l.firstName) &&
+            norm(c.lastName || "") === norm(l.lastName)
+        );
+        if (cand) resolved.set(i, cand);
+      }
     }
   }
 
-  // tier 3 (opt-in): clearpath inferred email for whatever remains.
-  if (includeInferred) {
+  // tier 3 (opt-in): clearpath inferred email for whatever remains. DISABLED
+  // unless re-enabled — it bills per pattern TESTED (hit or miss), not per email
+  // found, so it under-refactures under the per-delivered-lead model.
+  if (includeInferred && ENABLED_SOURCES.includes("clearpath")) {
+    const clearpath: Record<string, number> = {};
+    chargedEvents.clearpath = clearpath;
     const missesT2 = inputs.map((l, i) => ({ l, i })).filter(({ i }) => !resolved.has(i));
     if (missesT2.length > 0) {
       const r = await runActor(token, ACTOR_CLEARPATH, {
@@ -444,6 +508,7 @@ export async function resolveEmails(
         mode: "optimized",
       });
       apifyUsd += r.usageTotalUsd;
+      addEventCounts(clearpath, r.chargedEventCounts);
       const byKey = new Map<string, NormalizedLead>();
       for (const row of r.items) {
         const m = mapClearpath(row);
@@ -461,5 +526,5 @@ export async function resolveEmails(
   const leads = [...resolved.entries()]
     .sort((a, b) => a[0] - b[0])
     .map(([, l]) => l);
-  return { leads, apifyUsdSpent: apifyUsd };
+  return { leads, apifyUsdSpent: apifyUsd, chargedEvents };
 }

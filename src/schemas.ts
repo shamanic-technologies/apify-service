@@ -78,6 +78,9 @@ export const ResolveRequestSchema = z
   .object({
     leads: z.array(LeadInputSchema).min(1).max(100),
     // OFF by default — when true, allow clearpath pattern-guessed (inferred) emails.
+    // NOTE: currently a no-op — the clearpath (inferred) source is disabled
+    // (see ENABLED_SOURCES in waterfall.ts), so no inferred emails are returned
+    // regardless of this flag. Kept for API stability until clearpath re-enables.
     includeInferred: z.boolean().optional(),
   })
   .openapi("ResolveRequest");
@@ -141,7 +144,7 @@ export type Lead = z.infer<typeof LeadSchema>;
 registry.registerPath({
   method: "post",
   path: "/search",
-  summary: "Search for verified-email leads via the Apify waterfall (pipelinelabs + microworlds).",
+  summary: "Search for verified-email leads via the Apify waterfall (pipelinelabs).",
   request: {
     body: { content: { "application/json": { schema: SearchRequestSchema } } },
   },
