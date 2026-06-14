@@ -22,7 +22,7 @@ import {
   countMatches,
   NormalizedLead,
   LeadInput,
-  ChargedEventsBySource,
+  RunsBySource,
 } from "../lib/waterfall.js";
 import {
   buildFiltersPromptText,
@@ -153,7 +153,7 @@ router.post("/search", serviceAuth, async (req: AuthenticatedRequest, res: Respo
       runIdentity
     );
 
-    const { leads, totalMatched, chargedEvents } = await searchVerifiedLeads(token, filters);
+    const { leads, totalMatched, runsBySource } = await searchVerifiedLeads(token, filters);
 
     // Paging signals (gaps 2 + 3). The cursor advances over the pipelinelabs
     // stream by the requested page size; more exist if the total exceeds it.
@@ -187,8 +187,8 @@ router.post("/search", serviceAuth, async (req: AuthenticatedRequest, res: Respo
         });
     }
 
-    // ACTUALIZE the real Apify charged events (start + per-lead) + cancel holds.
-    await actualizeAndCancel(run.id, chargedEvents, provisioned, runIdentity);
+    // ACTUALIZE real costs (per delivered lead + per run executed) + cancel holds.
+    await actualizeAndCancel(run.id, leads, runsBySource, provisioned, runIdentity);
 
     await updateRun(run.id, "completed", runIdentity);
 
@@ -265,7 +265,7 @@ router.post("/resolve", serviceAuth, async (req: AuthenticatedRequest, res: Resp
 
     let resolved: NormalizedLead[] = [];
     let provisioned: RunCost[] = [];
-    let chargedEvents: ChargedEventsBySource = {};
+    let runsBySource: RunsBySource = {};
     if (misses.length > 0) {
       // Worst case (pipelinelabs only — ENABLED_SOURCES): tier 1 resolves all
       // misses (up to `misses.length` leads) and runs the actor once per miss
@@ -282,7 +282,7 @@ router.post("/resolve", serviceAuth, async (req: AuthenticatedRequest, res: Resp
       );
       const result = await resolveEmails(token, misses, Boolean(includeInferred));
       resolved = result.leads;
-      chargedEvents = result.chargedEvents;
+      runsBySource = result.runsBySource;
     }
 
     const [searchRow] = await db
@@ -309,9 +309,9 @@ router.post("/resolve", serviceAuth, async (req: AuthenticatedRequest, res: Resp
           target: [leadsTable.orgId, leadsTable.companyDomain, leadsTable.firstName, leadsTable.lastName],
         });
     }
-    // ACTUALIZE real Apify charged events (cache hits are free) + cancel holds.
+    // ACTUALIZE real costs — per delivered lead + per run (cache hits are free) + cancel holds.
     if (provisioned.length > 0) {
-      await actualizeAndCancel(run.id, chargedEvents, provisioned, runIdentity);
+      await actualizeAndCancel(run.id, resolved, runsBySource, provisioned, runIdentity);
     }
 
     await updateRun(run.id, "completed", runIdentity);

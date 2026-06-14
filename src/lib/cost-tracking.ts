@@ -6,7 +6,7 @@ import {
   IdentityHeaders,
 } from "./runs-client.js";
 import { authorize } from "./billing-client.js";
-import type { LeadSource, ChargedEventsBySource } from "./waterfall.js";
+import type { LeadSource, NormalizedLead, RunsBySource } from "./waterfall.js";
 
 /**
  * Per-actor LEAD cost name (used for the worst-case provision hold). Org pays
@@ -30,30 +30,6 @@ export const START_COST_BY_SOURCE: Record<LeadSource, string> = {
   clearpath: "apify-clearpath-actor-start",
 };
 
-/**
- * 100%-passthrough table: map each actor's Apify charged-event name → the
- * costs-service cost name. Every event Apify bills us is declared here. An event
- * NOT in this table fails loud (eventCostItems throws) rather than going
- * unbilled — that's the whole point of refacturing every cost.
- *
- * Only the pipelinelabs entries have registered cost names in costs-service
- * today; the microworlds/clearpath rows document the future mapping and will
- * 422 (fail loud) if their source is re-enabled before the names are created.
- */
-const COST_NAME_BY_EVENT: Record<LeadSource, Record<string, string>> = {
-  pipelinelabs: {
-    "apify-actor-start": "apify-pipelinelabs-actor-start",
-    "lead-returned": "apify-pipelinelabs-lead",
-  },
-  microworlds: {
-    "apify-actor-start": "apify-microworlds-actor-start",
-    leads: "apify-microworlds-lead",
-  },
-  clearpath: {
-    actor_start: "apify-clearpath-actor-start",
-    email_pattern_tested: "apify-clearpath-pattern-tested",
-  },
-};
 
 export interface WorstCaseItem {
   costName: string;
@@ -91,48 +67,49 @@ export async function provisionAndAuthorize(
 }
 
 /**
- * Build `actual` cost items from the real Apify charged events — one line per
- * (source, event). This is the 100%-passthrough actualization: start fees AND
- * per-lead fees, exactly as Apify billed us. Fails loud on an unmapped event.
+ * Build `actual` per-LEAD cost items, one line per source actor — billed from
+ * the DELIVERED lead count (what the org receives). Reliable: derived from the
+ * leads we actually return, not from Apify's unreliable `chargedEventCounts`.
  */
-export function eventCostItems(chargedEvents: ChargedEventsBySource): CostItem[] {
-  const items: CostItem[] = [];
-  for (const [source, events] of Object.entries(chargedEvents) as [
-    LeadSource,
-    Record<string, number> | undefined,
-  ][]) {
-    const map = COST_NAME_BY_EVENT[source];
-    for (const [event, quantity] of Object.entries(events ?? {})) {
-      if (!quantity || quantity <= 0) continue;
-      const costName = map?.[event];
-      if (!costName) {
-        throw new Error(
-          `[apify-service] unmapped Apify charged event "${source}/${event}" — cannot declare its cost (would under-bill the org)`
-        );
-      }
-      items.push({
-        costName,
-        costSource: "platform" as const,
-        quantity,
-        status: "actual" as const,
-      });
-    }
-  }
-  return items;
+export function actualItemsBySource(leads: NormalizedLead[]): CostItem[] {
+  const counts = new Map<LeadSource, number>();
+  for (const l of leads) counts.set(l.source, (counts.get(l.source) ?? 0) + 1);
+  return [...counts.entries()].map(([source, quantity]) => ({
+    costName: COST_NAME_BY_SOURCE[source],
+    costSource: "platform" as const,
+    quantity,
+    status: "actual" as const,
+  }));
 }
 
 /**
- * ACTUALIZE: declare the real per-event costs (start + per-lead), then CANCEL
- * the provisioned worst-case holds (runs PATCH is status-only — no in-place
- * quantity edit, so we post the real quantity as `actual` and cancel the hold).
+ * Build `actual` per-RUN (actor-start) cost items, one line per source actor —
+ * billed from the count of runs we executed (Apify charges one start per run).
+ */
+export function startItemsBySource(runsBySource: RunsBySource): CostItem[] {
+  return Object.entries(runsBySource)
+    .filter(([, n]) => typeof n === "number" && n > 0)
+    .map(([source, n]) => ({
+      costName: START_COST_BY_SOURCE[source as LeadSource],
+      costSource: "platform" as const,
+      quantity: n as number,
+      status: "actual" as const,
+    }));
+}
+
+/**
+ * ACTUALIZE: declare the real costs — per delivered lead AND per run executed —
+ * then CANCEL the provisioned worst-case holds (runs PATCH is status-only, so we
+ * post the real quantity as `actual` and cancel the hold).
  */
 export async function actualizeAndCancel(
   runId: string,
-  chargedEvents: ChargedEventsBySource,
+  leads: NormalizedLead[],
+  runsBySource: RunsBySource,
   provisioned: RunCost[],
   identity: IdentityHeaders
 ): Promise<void> {
-  const actuals = eventCostItems(chargedEvents);
+  const actuals = [...actualItemsBySource(leads), ...startItemsBySource(runsBySource)];
   if (actuals.length > 0) await addCosts(runId, actuals, identity);
   for (const c of provisioned) {
     await updateCostStatus(runId, c.id, "cancelled", identity);
