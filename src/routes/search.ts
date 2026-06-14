@@ -12,6 +12,7 @@ import { getPlatformKey } from "../lib/keys-client.js";
 import { createRun, updateRun, IdentityHeaders, RunCost } from "../lib/runs-client.js";
 import {
   COST_NAME_BY_SOURCE,
+  START_COST_BY_SOURCE,
   provisionAndAuthorize,
   actualizeAndCancel,
 } from "../lib/cost-tracking.js";
@@ -21,6 +22,7 @@ import {
   countMatches,
   NormalizedLead,
   LeadInput,
+  ChargedEventsBySource,
 } from "../lib/waterfall.js";
 import {
   buildFiltersPromptText,
@@ -137,19 +139,21 @@ router.post("/search", serviceAuth, async (req: AuthenticatedRequest, res: Respo
   const runIdentity: IdentityHeaders = { ...identity, runId: run.id };
 
   try {
-    // PROVISION worst-case (both actors may each return `limit`) + AUTHORIZE,
-    // BEFORE any Apify spend. Fail-loud if a cost name isn't declarable.
+    // PROVISION worst-case + AUTHORIZE, BEFORE any Apify spend. Fail-loud if a
+    // cost name isn't declarable. pipelinelabs only (ENABLED_SOURCES): up to
+    // `limit` leads + 2 actor-start runs (the extraction run + the count probe).
+    // Extend this hold when re-enabling another source.
     const provisioned = await provisionAndAuthorize(
       run.id,
       [
         { costName: COST_NAME_BY_SOURCE.pipelinelabs, quantity: filters.limit },
-        { costName: COST_NAME_BY_SOURCE.microworlds, quantity: filters.limit },
+        { costName: START_COST_BY_SOURCE.pipelinelabs, quantity: 2 },
       ],
       `apify-service search (${filters.limit} leads)`,
       runIdentity
     );
 
-    const { leads, totalMatched } = await searchVerifiedLeads(token, filters);
+    const { leads, totalMatched, chargedEvents } = await searchVerifiedLeads(token, filters);
 
     // Paging signals (gaps 2 + 3). The cursor advances over the pipelinelabs
     // stream by the requested page size; more exist if the total exceeds it.
@@ -183,8 +187,8 @@ router.post("/search", serviceAuth, async (req: AuthenticatedRequest, res: Respo
         });
     }
 
-    // ACTUALIZE per-actor real counts + cancel the provisioned holds.
-    await actualizeAndCancel(run.id, leads, provisioned, runIdentity);
+    // ACTUALIZE the real Apify charged events (start + per-lead) + cancel holds.
+    await actualizeAndCancel(run.id, chargedEvents, provisioned, runIdentity);
 
     await updateRun(run.id, "completed", runIdentity);
 
@@ -261,15 +265,15 @@ router.post("/resolve", serviceAuth, async (req: AuthenticatedRequest, res: Resp
 
     let resolved: NormalizedLead[] = [];
     let provisioned: RunCost[] = [];
+    let chargedEvents: ChargedEventsBySource = {};
     if (misses.length > 0) {
-      // Worst case: any tier could resolve all misses. clearpath only when opted in.
+      // Worst case (pipelinelabs only — ENABLED_SOURCES): tier 1 resolves all
+      // misses (up to `misses.length` leads) and runs the actor once per miss
+      // (one billable actor-start each). Extend when re-enabling another source.
       const items = [
         { costName: COST_NAME_BY_SOURCE.pipelinelabs, quantity: misses.length },
-        { costName: COST_NAME_BY_SOURCE.microworlds, quantity: misses.length },
+        { costName: START_COST_BY_SOURCE.pipelinelabs, quantity: misses.length },
       ];
-      if (includeInferred) {
-        items.push({ costName: COST_NAME_BY_SOURCE.clearpath, quantity: misses.length });
-      }
       provisioned = await provisionAndAuthorize(
         run.id,
         items,
@@ -278,6 +282,7 @@ router.post("/resolve", serviceAuth, async (req: AuthenticatedRequest, res: Resp
       );
       const result = await resolveEmails(token, misses, Boolean(includeInferred));
       resolved = result.leads;
+      chargedEvents = result.chargedEvents;
     }
 
     const [searchRow] = await db
@@ -304,9 +309,9 @@ router.post("/resolve", serviceAuth, async (req: AuthenticatedRequest, res: Resp
           target: [leadsTable.orgId, leadsTable.companyDomain, leadsTable.firstName, leadsTable.lastName],
         });
     }
-    // ACTUALIZE real per-actor costs (cache hits are free) + cancel holds.
+    // ACTUALIZE real Apify charged events (cache hits are free) + cancel holds.
     if (provisioned.length > 0) {
-      await actualizeAndCancel(run.id, resolved, provisioned, runIdentity);
+      await actualizeAndCancel(run.id, chargedEvents, provisioned, runIdentity);
     }
 
     await updateRun(run.id, "completed", runIdentity);

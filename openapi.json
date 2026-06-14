@@ -493,7 +493,7 @@
   "paths": {
     "/search": {
       "post": {
-        "summary": "Search for verified-email leads via the Apify waterfall (pipelinelabs + microworlds).",
+        "summary": "Search for verified-email leads via the Apify waterfall (pipelinelabs).",
         "requestBody": {
           "content": {
             "application/json": {
