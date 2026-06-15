@@ -1,8 +1,7 @@
 import { Router, Response } from "express";
-import { and, eq, gte, inArray } from "drizzle-orm";
+import { and, eq, gte } from "drizzle-orm";
 import { db } from "../db/index.js";
-import { leadSearches, leads as leadsTable, leadEmissions } from "../db/schema.js";
-import { emissionKey, selectFreshLeads, computePaging } from "../lib/saturation.js";
+import { leadSearches, leads as leadsTable } from "../db/schema.js";
 import { serviceAuth, AuthenticatedRequest } from "../middleware/auth.js";
 import {
   SearchRequestSchema,
@@ -154,57 +153,14 @@ router.post("/search", serviceAuth, async (req: AuthenticatedRequest, res: Respo
       runIdentity
     );
 
-    // `pageLeads` = what the actor RETURNED for this page (the billable unit —
-    // Apify charges per returned lead). Billing stays on this (unchanged); the
-    // per-campaign no-repeat filtering below only affects what we HAND BACK.
-    const { leads: pageLeads, totalMatched, runsBySource } =
-      await searchVerifiedLeads(token, filters);
+    const { leads, totalMatched, runsBySource } = await searchVerifiedLeads(token, filters);
 
-    // Per-campaign no-repeat (apify-service#18): exclude people already emitted
-    // for this campaign so we never hand the same person back twice. Engages only
-    // when a campaignId is present; campaign-less searches behave as before.
-    const campaignId = req.campaignId;
-    const emittedKeys = new Set<string>();
-    if (campaignId && pageLeads.length > 0) {
-      const domains = [
-        ...new Set(
-          pageLeads
-            .map((l) => l.companyDomain)
-            .filter((d): d is string => Boolean(d))
-        ),
-      ];
-      if (domains.length > 0) {
-        const priorEmissions = await db
-          .select({
-            companyDomain: leadEmissions.companyDomain,
-            firstName: leadEmissions.firstName,
-            lastName: leadEmissions.lastName,
-          })
-          .from(leadEmissions)
-          .where(
-            and(
-              eq(leadEmissions.orgId, req.orgId!),
-              eq(leadEmissions.campaignId, campaignId),
-              inArray(leadEmissions.companyDomain, domains)
-            )
-          );
-        for (const e of priorEmissions) emittedKeys.add(emissionKey(e));
-      }
-    }
-    const freshLeads = campaignId
-      ? selectFreshLeads(pageLeads, emittedKeys)
-      : pageLeads;
-
-    // Saturation-stop: terminality reflects FRESH-distinct exhaustion, not the
-    // inflated `totalMatched` probe. Zero fresh on a page ⟹ `done` — the cursor
-    // recycles already-served leads forever, so this is the only truthful signal.
+    // Paging signals (gaps 2 + 3). The cursor advances over the pipelinelabs
+    // stream by the requested page size; more exist if the total exceeds it.
     const offsetBase = filters.offset ?? 0;
-    const { hasMore, nextOffset } = computePaging({
-      freshCount: freshLeads.length,
-      offset: offsetBase,
-      limit: filters.limit,
-      totalMatched,
-    });
+    const consumed = offsetBase + filters.limit;
+    const hasMore = totalMatched > consumed;
+    const nextOffset = hasMore ? consumed : undefined;
 
     const [searchRow] = await db
       .insert(leadSearches)
@@ -217,64 +173,33 @@ router.post("/search", serviceAuth, async (req: AuthenticatedRequest, res: Respo
         workflowSlug: req.workflowSlug ?? null,
         mode: "search",
         requestParams: filters,
-        leadCount: freshLeads.length,
-        verifiedCount: freshLeads.length,
+        leadCount: leads.length,
+        verifiedCount: leads.length,
       })
       .returning();
 
-    // Cache every resolved lead the actor returned (org-scoped 12-month cache),
-    // independent of per-campaign dedup.
-    if (pageLeads.length > 0) {
+    if (leads.length > 0) {
       await db
         .insert(leadsTable)
-        .values(pageLeads.map((l) => toLeadRow(req, run.id, searchRow.id, l)))
+        .values(leads.map((l) => toLeadRow(req, run.id, searchRow.id, l)))
         .onConflictDoNothing({
           target: [leadsTable.orgId, leadsTable.companyDomain, leadsTable.firstName, leadsTable.lastName],
         });
     }
 
-    // Record the per-campaign emissions for the fresh leads we hand back, so the
-    // next page excludes them and the audience exhausts to a truthful `done`.
-    if (campaignId && freshLeads.length > 0) {
-      await db
-        .insert(leadEmissions)
-        .values(
-          freshLeads.map((l) => ({
-            orgId: req.orgId!,
-            campaignId,
-            companyDomain: l.companyDomain ?? null,
-            firstName: l.firstName ?? null,
-            lastName: l.lastName ?? null,
-            brandIds: req.brandIds ?? null,
-          }))
-        )
-        .onConflictDoNothing({
-          target: [
-            leadEmissions.orgId,
-            leadEmissions.campaignId,
-            leadEmissions.companyDomain,
-            leadEmissions.firstName,
-            leadEmissions.lastName,
-          ],
-        });
-    }
-
-    // ACTUALIZE real costs (per actor-RETURNED lead + per run executed) + cancel
-    // holds. Billed on `pageLeads` — Apify charges for everything the actor
-    // returned; per-campaign filtering doesn't refund it (it saves spend by
-    // stopping FURTHER pages once `done` fires).
-    await actualizeAndCancel(run.id, pageLeads, runsBySource, provisioned, runIdentity);
+    // ACTUALIZE real costs (per delivered lead + per run executed) + cancel holds.
+    await actualizeAndCancel(run.id, leads, runsBySource, provisioned, runIdentity);
 
     await updateRun(run.id, "completed", runIdentity);
 
     return res.json({
       searchId: searchRow.id,
-      leadCount: freshLeads.length,
-      verifiedCount: freshLeads.length,
+      leadCount: leads.length,
+      verifiedCount: leads.length,
       totalMatched,
       hasMore,
       ...(nextOffset !== undefined ? { nextOffset } : {}),
-      leads: freshLeads.map(toApiLead),
+      leads: leads.map(toApiLead),
     });
   } catch (err) {
     await updateRun(run.id, "failed", runIdentity).catch((e) =>

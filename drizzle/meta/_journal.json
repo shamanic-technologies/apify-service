@@ -8,13 +8,6 @@
       "when": 1781260874310,
       "tag": "0000_vengeful_marvex",
       "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "7",
-      "when": 1781499470465,
-      "tag": "0001_woozy_silver_surfer",
-      "breakpoints": true
     }
   ]
 }
