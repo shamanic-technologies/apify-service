@@ -91,3 +91,48 @@ export const leads = pgTable(
     ),
   })
 );
+
+/**
+ * Per-campaign emission log: one row per (org, person, campaign) the moment a
+ * lead is HANDED BACK to the caller for that campaign. The source of truth for
+ * "already served this person to this campaign" — distinct from `leads` (the
+ * org-scoped resolved-email cache, one row per person regardless of campaign).
+ *
+ * Two responsibilities ride on it:
+ *   1. No-repeat — exclude already-emitted people from future /search results so
+ *      apify never hands the same person back twice for the same campaignId.
+ *   2. Saturation-stop — a /search page yielding zero FRESH (not-already-emitted)
+ *      distinct leads is terminal, so `done` reflects fresh-distinct exhaustion
+ *      rather than the inflated pipelinelabs count-probe.
+ *
+ * `brand_ids` is carried now (not used here) so a future per-brand 6-month window
+ * (human-service#36) can plug in without a migration. Person identity is
+ * (company_domain, first_name, last_name) — same key family as `leads_cache_idx`.
+ */
+export const leadEmissions = pgTable(
+  "lead_emissions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: text("org_id").notNull(),
+    campaignId: text("campaign_id").notNull(),
+    companyDomain: text("company_domain"),
+    firstName: text("first_name"),
+    lastName: text("last_name"),
+    brandIds: uuid("brand_ids").array(),
+    emittedAt: timestamp("emitted_at").notNull().defaultNow(),
+  },
+  (t) => ({
+    orgCampaignIdx: index("lead_emissions_org_campaign_idx").on(
+      t.orgId,
+      t.campaignId
+    ),
+    // No-repeat key: one emission per (org, campaign, person).
+    emissionKeyIdx: uniqueIndex("lead_emissions_key_idx").on(
+      t.orgId,
+      t.campaignId,
+      t.companyDomain,
+      t.firstName,
+      t.lastName
+    ),
+  })
+);
