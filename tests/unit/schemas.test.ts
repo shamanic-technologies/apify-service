@@ -31,6 +31,14 @@ describe("SearchRequestSchema", () => {
     });
     expect(r.success).toBe(true);
   });
+  it("accepts optional gateway suppression excludes", () => {
+    const r = SearchRequestSchema.safeParse({
+      limit: 10,
+      excludeEmails: ["served@example.com"],
+      excludeLinkedinUrls: ["linkedin.com/in/served"],
+    });
+    expect(r.success).toBe(true);
+  });
   it("rejects a negative offset", () => {
     expect(SearchRequestSchema.safeParse({ limit: 50, offset: -1 }).success).toBe(false);
   });

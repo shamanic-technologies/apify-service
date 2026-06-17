@@ -1,6 +1,9 @@
 import { describe, it, expect } from "vitest";
 import {
   emissionKey,
+  normalizeEmail,
+  normalizeLinkedinUrl,
+  isGatewayExcluded,
   selectFreshLeads,
   computePaging,
 } from "../../src/lib/saturation.js";
@@ -36,10 +39,18 @@ describe("emissionKey", () => {
 });
 
 describe("selectFreshLeads", () => {
-  const lead = (domain: string, first: string, last: string) => ({
+  const lead = (
+    domain: string,
+    first: string,
+    last: string,
+    email?: string,
+    linkedinUrl?: string
+  ) => ({
     companyDomain: domain,
     firstName: first,
     lastName: last,
+    email,
+    linkedinUrl,
   });
 
   it("excludes already-emitted leads, keeps fresh ones", () => {
@@ -65,6 +76,40 @@ describe("selectFreshLeads", () => {
     const page = [lead("acme.com", "John", "Doe"), lead("beta.com", "Sam", "Smith")];
     const emitted = new Set(page.map((l) => emissionKey(l)));
     expect(selectFreshLeads(page, emitted)).toHaveLength(0);
+  });
+
+  it("excludes gateway-suppressed emails and linkedin urls", () => {
+    const page = [
+      lead("acme.com", "John", "Doe", "JOHN@ACME.COM", "https://www.linkedin.com/in/john/"),
+      lead("beta.com", "Jane", "Roe", "jane@beta.com", "https://linkedin.com/in/jane"),
+      lead("gamma.com", "Sam", "Smith", "sam@gamma.com", "https://linkedin.com/in/sam"),
+    ];
+    const fresh = selectFreshLeads(page, new Set(), {
+      excludeEmails: [" john@acme.com "],
+      excludeLinkedinUrls: ["linkedin.com/in/jane"],
+    });
+    expect(fresh.map((l) => l.email)).toEqual(["sam@gamma.com"]);
+  });
+});
+
+describe("gateway exclusions", () => {
+  it("normalizes email casing and whitespace", () => {
+    expect(normalizeEmail(" User@Example.COM ")).toBe("user@example.com");
+  });
+
+  it("normalizes linkedin scheme, www, query, and trailing slash", () => {
+    expect(normalizeLinkedinUrl("https://www.linkedin.com/in/Person/?trk=public")).toBe(
+      "linkedin.com/in/person"
+    );
+  });
+
+  it("matches excluded linkedin variants", () => {
+    expect(
+      isGatewayExcluded(
+        { linkedinUrl: "https://www.linkedin.com/in/served/" },
+        { excludeLinkedinUrls: ["linkedin.com/in/served"] }
+      )
+    ).toBe(true);
   });
 });
 

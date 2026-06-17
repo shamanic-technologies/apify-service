@@ -12,9 +12,21 @@
  */
 
 type PersonIdentity = {
+  email?: string | null;
+  linkedinUrl?: string | null;
   companyDomain?: string | null;
   firstName?: string | null;
   lastName?: string | null;
+};
+
+type GatewayExclusions = {
+  excludeEmails?: readonly string[];
+  excludeLinkedinUrls?: readonly string[];
+};
+
+type NormalizedGatewayExclusions = {
+  emails: ReadonlySet<string>;
+  linkedinUrls: ReadonlySet<string>;
 };
 
 /**
@@ -28,15 +40,70 @@ export function emissionKey(l: PersonIdentity): string {
     .join("|");
 }
 
+export function normalizeEmail(email: string | null | undefined): string | null {
+  const normalized = (email ?? "").trim().toLowerCase();
+  return normalized || null;
+}
+
+export function normalizeLinkedinUrl(url: string | null | undefined): string | null {
+  let normalized = (url ?? "").trim().toLowerCase();
+  if (!normalized) return null;
+  normalized = normalized
+    .replace(/^https?:\/\//, "")
+    .replace(/^www\./, "")
+    .split(/[?#]/, 1)[0]
+    .replace(/\/+$/, "");
+  return normalized || null;
+}
+
+function normalizedSet(
+  values: readonly string[] | undefined,
+  normalize: (v: string) => string | null
+): Set<string> {
+  return new Set((values ?? []).map(normalize).filter((v): v is string => Boolean(v)));
+}
+
+function normalizeGatewayExclusions(
+  exclusions: GatewayExclusions
+): NormalizedGatewayExclusions {
+  return {
+    emails: normalizedSet(exclusions.excludeEmails, normalizeEmail),
+    linkedinUrls: normalizedSet(exclusions.excludeLinkedinUrls, normalizeLinkedinUrl),
+  };
+}
+
+function isNormalizedGatewayExcluded(
+  lead: PersonIdentity,
+  exclusions: NormalizedGatewayExclusions
+): boolean {
+  const email = normalizeEmail(lead.email);
+  if (email && exclusions.emails.has(email)) return true;
+  const linkedinUrl = normalizeLinkedinUrl(lead.linkedinUrl);
+  return Boolean(linkedinUrl && exclusions.linkedinUrls.has(linkedinUrl));
+}
+
+export function isGatewayExcluded(
+  lead: PersonIdentity,
+  exclusions: GatewayExclusions
+): boolean {
+  return isNormalizedGatewayExcluded(lead, normalizeGatewayExclusions(exclusions));
+}
+
 /**
  * Keep only the leads NOT already emitted for this campaign. `emittedKeys` is the
  * set of `emissionKey()`s already present in `lead_emissions` for (org, campaign).
  */
 export function selectFreshLeads<T extends PersonIdentity>(
   pageLeads: T[],
-  emittedKeys: ReadonlySet<string>
+  emittedKeys: ReadonlySet<string>,
+  exclusions: GatewayExclusions = {}
 ): T[] {
-  return pageLeads.filter((l) => !emittedKeys.has(emissionKey(l)));
+  const normalizedExclusions = normalizeGatewayExclusions(exclusions);
+  return pageLeads.filter(
+    (l) =>
+      !emittedKeys.has(emissionKey(l)) &&
+      !isNormalizedGatewayExcluded(l, normalizedExclusions)
+  );
 }
 
 /**
