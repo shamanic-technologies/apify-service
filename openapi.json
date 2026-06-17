@@ -240,6 +240,18 @@
           "offset": {
             "type": "integer",
             "minimum": 0
+          },
+          "excludeEmails": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "excludeLinkedinUrls": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         },
         "required": [

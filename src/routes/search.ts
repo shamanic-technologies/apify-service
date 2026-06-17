@@ -160,9 +160,9 @@ router.post("/search", serviceAuth, async (req: AuthenticatedRequest, res: Respo
     const { leads: pageLeads, totalMatched, runsBySource } =
       await searchVerifiedLeads(token, filters);
 
-    // Per-campaign no-repeat (apify-service#18): exclude people already emitted
-    // for this campaign so we never hand the same person back twice. Engages only
-    // when a campaignId is present; campaign-less searches behave as before.
+    // Per-campaign no-repeat (apify-service#18) plus gateway-provided per-brand
+    // exclusions (human-service#36): both affect what we HAND BACK, which then
+    // drives terminality. Billing remains based on actor-returned `pageLeads`.
     const campaignId = req.campaignId;
     const emittedKeys = new Set<string>();
     if (campaignId && pageLeads.length > 0) {
@@ -191,9 +191,10 @@ router.post("/search", serviceAuth, async (req: AuthenticatedRequest, res: Respo
         for (const e of priorEmissions) emittedKeys.add(emissionKey(e));
       }
     }
-    const freshLeads = campaignId
-      ? selectFreshLeads(pageLeads, emittedKeys)
-      : pageLeads;
+    const freshLeads = selectFreshLeads(pageLeads, emittedKeys, {
+      excludeEmails: filters.excludeEmails,
+      excludeLinkedinUrls: filters.excludeLinkedinUrls,
+    });
 
     // Saturation-stop: terminality reflects FRESH-distinct exhaustion, not the
     // inflated `totalMatched` probe. Zero fresh on a page ⟹ `done` — the cursor

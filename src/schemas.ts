@@ -37,6 +37,10 @@ export const SearchRequestSchema = z
     limit: z.number().int().min(1).max(1000),
     // Resume position for pagination past the first page (pipelinelabs only).
     offset: z.number().int().min(0).optional(),
+    // Gateway-provided suppression set (human-service#36). These are already
+    // served for one of the request brandIds inside the active window.
+    excludeEmails: z.array(z.string()).optional(),
+    excludeLinkedinUrls: z.array(z.string()).optional(),
   })
   .openapi("SearchRequest");
 
