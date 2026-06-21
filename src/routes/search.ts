@@ -45,6 +45,7 @@ function identityFromReq(req: AuthenticatedRequest): IdentityHeaders {
     campaignId: req.campaignId,
     featureSlug: req.featureSlug,
     workflowSlug: req.workflowSlug,
+    audienceId: req.audienceId,
   };
 }
 
@@ -63,6 +64,7 @@ function toLeadRow(
     campaignId: req.campaignId ?? null,
     featureSlug: req.featureSlug ?? null,
     workflowSlug: req.workflowSlug ?? null,
+    audienceId: req.audienceId ?? null,
     firstName: l.firstName ?? null,
     lastName: l.lastName ?? null,
     fullName: l.fullName ?? null,
@@ -124,6 +126,7 @@ router.post("/search", serviceAuth, async (req: AuthenticatedRequest, res: Respo
   const token = await getPlatformKey("apify", {
     callerMethod: "POST",
     callerPath: "/search",
+    audienceId: req.audienceId,
   });
 
   const run = await createRun({
@@ -133,6 +136,7 @@ router.post("/search", serviceAuth, async (req: AuthenticatedRequest, res: Respo
     campaignId: req.campaignId,
     featureSlug: req.featureSlug,
     workflowSlug: req.workflowSlug,
+    audienceId: req.audienceId,
     parentRunId: req.runId,
     serviceName: SERVICE_NAME,
     taskName: "search",
@@ -216,6 +220,7 @@ router.post("/search", serviceAuth, async (req: AuthenticatedRequest, res: Respo
         campaignId: req.campaignId ?? null,
         featureSlug: req.featureSlug ?? null,
         workflowSlug: req.workflowSlug ?? null,
+        audienceId: req.audienceId ?? null,
         mode: "search",
         requestParams: filters,
         leadCount: freshLeads.length,
@@ -298,6 +303,7 @@ router.post("/resolve", serviceAuth, async (req: AuthenticatedRequest, res: Resp
   const token = await getPlatformKey("apify", {
     callerMethod: "POST",
     callerPath: "/resolve",
+    audienceId: req.audienceId,
   });
 
   const run = await createRun({
@@ -307,6 +313,7 @@ router.post("/resolve", serviceAuth, async (req: AuthenticatedRequest, res: Resp
     campaignId: req.campaignId,
     featureSlug: req.featureSlug,
     workflowSlug: req.workflowSlug,
+    audienceId: req.audienceId,
     parentRunId: req.runId,
     serviceName: SERVICE_NAME,
     taskName: "resolve",
@@ -370,6 +377,7 @@ router.post("/resolve", serviceAuth, async (req: AuthenticatedRequest, res: Resp
         campaignId: req.campaignId ?? null,
         featureSlug: req.featureSlug ?? null,
         workflowSlug: req.workflowSlug ?? null,
+        audienceId: req.audienceId ?? null,
         mode: "resolve",
         requestParams: { count: inputs.length, includeInferred: Boolean(includeInferred) },
         leadCount: inputs.length,
@@ -422,6 +430,7 @@ router.post("/search/count", serviceAuth, async (req: AuthenticatedRequest, res:
   const token = await getPlatformKey("apify", {
     callerMethod: "POST",
     callerPath: "/search/count",
+    audienceId: req.audienceId,
   });
 
   const totalMatched = await countMatches(token, parsed.data);

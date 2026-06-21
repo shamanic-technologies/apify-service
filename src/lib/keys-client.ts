@@ -5,6 +5,8 @@ const TIMEOUT_MS = 30_000;
 export interface CallerContext {
   callerMethod: string;
   callerPath: string;
+  /** Audience attribution to forward on this internal call (key-service). */
+  audienceId?: string;
 }
 
 /**
@@ -17,15 +19,17 @@ export async function getPlatformKey(
   caller: CallerContext
 ): Promise<string> {
   const url = `${config.keyServiceUrl}/keys/platform/${provider}/decrypt`;
+  const headers: Record<string, string> = {
+    "X-API-Key": config.keyServiceApiKey,
+    "X-Caller-Service": "apify-service",
+    "X-Caller-Method": caller.callerMethod,
+    "X-Caller-Path": caller.callerPath,
+  };
+  if (caller.audienceId) headers["x-audience-id"] = caller.audienceId;
   let res: Response;
   try {
     res = await fetch(url, {
-      headers: {
-        "X-API-Key": config.keyServiceApiKey,
-        "X-Caller-Service": "apify-service",
-        "X-Caller-Method": caller.callerMethod,
-        "X-Caller-Path": caller.callerPath,
-      },
+      headers,
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
   } catch (err) {

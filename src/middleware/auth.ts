@@ -9,6 +9,7 @@ export interface AuthenticatedRequest extends Request {
   campaignId?: string;
   featureSlug?: string;
   workflowSlug?: string;
+  audienceId?: string;
 }
 
 /** Parse x-brand-id header as CSV — supports single UUID or comma-separated list. */
@@ -47,6 +48,10 @@ export async function serviceAuth(
   const campaignId = req.headers["x-campaign-id"] as string | undefined;
   const featureSlug = req.headers["x-feature-slug"] as string | undefined;
   const workflowSlug = req.headers["x-workflow-slug"] as string | undefined;
+  // Audience attribution (campaign-service's priority audience for the run).
+  // Optional — absent outside a campaign flow. Same treatment as the other
+  // run-context headers; UUID validation happens downstream in runs-service.
+  const audienceId = req.headers["x-audience-id"] as string | undefined;
 
   if (runId) req.runId = runId;
   if (brandIdRaw) req.brandId = brandIdRaw;
@@ -54,6 +59,7 @@ export async function serviceAuth(
   if (campaignId) req.campaignId = campaignId;
   if (featureSlug) req.featureSlug = featureSlug;
   if (workflowSlug) req.workflowSlug = workflowSlug;
+  if (audienceId) req.audienceId = audienceId;
 
   next();
 }

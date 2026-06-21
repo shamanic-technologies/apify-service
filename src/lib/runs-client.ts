@@ -8,6 +8,7 @@ export interface IdentityHeaders {
   campaignId?: string;
   featureSlug?: string;
   workflowSlug?: string;
+  audienceId?: string;
 }
 
 export interface Run {
@@ -41,6 +42,7 @@ async function runsRequest<T>(
   if (identity?.campaignId) headers["x-campaign-id"] = identity.campaignId;
   if (identity?.featureSlug) headers["x-feature-slug"] = identity.featureSlug;
   if (identity?.workflowSlug) headers["x-workflow-slug"] = identity.workflowSlug;
+  if (identity?.audienceId) headers["x-audience-id"] = identity.audienceId;
 
   const response = await fetch(`${config.runsServiceUrl}${path}`, {
     method,
@@ -64,6 +66,7 @@ export interface CreateRunParams {
   campaignId?: string;
   featureSlug?: string;
   workflowSlug?: string;
+  audienceId?: string;
   parentRunId?: string;
   serviceName: string;
   taskName: string;
@@ -72,7 +75,12 @@ export interface CreateRunParams {
 export async function createRun(params: CreateRunParams): Promise<Run> {
   return runsRequest<Run>("/v1/runs", {
     method: "POST",
-    identity: { orgId: params.orgId, userId: params.userId, runId: params.parentRunId },
+    identity: {
+      orgId: params.orgId,
+      userId: params.userId,
+      runId: params.parentRunId,
+      audienceId: params.audienceId,
+    },
     body: {
       brandId: params.brandId,
       campaignId: params.campaignId,
