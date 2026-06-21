@@ -27,6 +27,7 @@ export async function authorize(
   if (identity.runId) headers["x-run-id"] = identity.runId;
   if (identity.brandId) headers["x-brand-id"] = identity.brandId;
   if (identity.campaignId) headers["x-campaign-id"] = identity.campaignId;
+  if (identity.audienceId) headers["x-audience-id"] = identity.audienceId;
 
   let res: Response;
   try {

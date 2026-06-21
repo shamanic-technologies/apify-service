@@ -23,6 +23,7 @@ export const leadSearches = pgTable(
     campaignId: text("campaign_id"),
     featureSlug: text("feature_slug"),
     workflowSlug: text("workflow_slug"),
+    audienceId: text("audience_id"),
     mode: text("mode").notNull(), // "search" | "resolve"
     requestParams: jsonb("request_params"),
     leadCount: integer("lead_count").notNull().default(0),
@@ -51,6 +52,7 @@ export const leads = pgTable(
     campaignId: text("campaign_id"),
     featureSlug: text("feature_slug"),
     workflowSlug: text("workflow_slug"),
+    audienceId: text("audience_id"),
     // Person
     firstName: text("first_name"),
     lastName: text("last_name"),
