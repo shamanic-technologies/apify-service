@@ -13,10 +13,13 @@ import {
   extractCount,
   plSearchInput,
   plCountInput,
+  mapVerifyStatus,
+  verifyEmails,
   ENABLED_SOURCES,
   ACTOR_PIPELINELABS,
   ACTOR_MICROWORLDS,
   ACTOR_CLEARPATH,
+  ACTOR_EMAIL_VERIFIER,
 } from "../../src/lib/waterfall.js";
 
 const isCountInput = (i: unknown) =>
@@ -266,5 +269,108 @@ describe("resolveEmails", () => {
     expect(calledActors).not.toContain(ACTOR_CLEARPATH);
     expect(calledActors).not.toContain(ACTOR_MICROWORLDS);
     expect(calledActors).toContain(ACTOR_PIPELINELABS);
+  });
+});
+
+describe("mapVerifyStatus (actor verdict → 5-literal enum)", () => {
+  it("maps a SMTP-confirmed mailbox to valid", () => {
+    expect(
+      mapVerifyStatus({ status: "valid", checks: { smtpCheck: true, catchAll: false } })
+    ).toBe("valid");
+  });
+
+  it("maps no-MX / bad-syntax to invalid", () => {
+    expect(mapVerifyStatus({ status: "invalid", checks: { mxRecords: false } })).toBe(
+      "invalid"
+    );
+  });
+
+  it("maps a catch-all domain to catch_all", () => {
+    expect(
+      mapVerifyStatus({ status: "risky", checks: { smtpCheck: true, catchAll: true } })
+    ).toBe("catch_all");
+  });
+
+  it("prefers invalid over catch_all (no live domain trumps catch-all flag)", () => {
+    expect(mapVerifyStatus({ status: "invalid", checks: { catchAll: true } })).toBe(
+      "invalid"
+    );
+  });
+
+  it("prefers catch_all over a valid status when the catch-all flag is set", () => {
+    expect(mapVerifyStatus({ status: "valid", checks: { catchAll: true } })).toBe(
+      "catch_all"
+    );
+  });
+
+  it("maps risky to risky", () => {
+    expect(mapVerifyStatus({ status: "risky", checks: { catchAll: false } })).toBe("risky");
+  });
+
+  it("folds disposable onto risky", () => {
+    expect(mapVerifyStatus({ status: "disposable", checks: { catchAll: null } })).toBe(
+      "risky"
+    );
+  });
+
+  it("maps the actor's unknown to unknown", () => {
+    expect(mapVerifyStatus({ status: "unknown", checks: {} })).toBe("unknown");
+  });
+
+  it("maps an unrecognized / missing status to unknown", () => {
+    expect(mapVerifyStatus({ status: "weird-new-value" })).toBe("unknown");
+    expect(mapVerifyStatus({})).toBe("unknown");
+  });
+
+  it("treats catchAll only when strictly true (null = not tested)", () => {
+    expect(mapVerifyStatus({ status: "valid", checks: { catchAll: null } })).toBe("valid");
+  });
+});
+
+describe("verifyEmails", () => {
+  it("returns one verdict per input email, matched case-insensitively", async () => {
+    runActorMock.mockResolvedValue(
+      result([
+        { email: "good@acme.com", status: "valid", checks: { catchAll: false } },
+        { email: "bounce@nope.com", status: "invalid", checks: { mxRecords: false } },
+        { email: "any@catchall.com", status: "risky", checks: { catchAll: true } },
+      ])
+    );
+
+    const { verdicts, verifiedCount } = await verifyEmails("tok", [
+      "GOOD@acme.com",
+      "bounce@nope.com",
+      "any@catchall.com",
+    ]);
+
+    expect(runActorMock).toHaveBeenCalledWith(
+      "tok",
+      ACTOR_EMAIL_VERIFIER,
+      expect.objectContaining({ emails: ["GOOD@acme.com", "bounce@nope.com", "any@catchall.com"] })
+    );
+    expect(verdicts).toEqual([
+      { email: "GOOD@acme.com", status: "valid" },
+      { email: "bounce@nope.com", status: "invalid" },
+      { email: "any@catchall.com", status: "catch_all" },
+    ]);
+    expect(verifiedCount).toBe(3);
+  });
+
+  it("resolves an input the actor returned no row for to unknown", async () => {
+    runActorMock.mockResolvedValue(
+      result([{ email: "seen@acme.com", status: "valid", checks: { catchAll: false } }])
+    );
+
+    const { verdicts, verifiedCount } = await verifyEmails("tok", [
+      "seen@acme.com",
+      "missing@acme.com",
+    ]);
+
+    expect(verdicts).toEqual([
+      { email: "seen@acme.com", status: "valid" },
+      { email: "missing@acme.com", status: "unknown" },
+    ]);
+    // Billed per actor-returned row, not per input.
+    expect(verifiedCount).toBe(1);
   });
 });

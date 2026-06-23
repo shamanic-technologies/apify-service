@@ -89,6 +89,27 @@ export const ResolveRequestSchema = z
   })
   .openapi("ResolveRequest");
 
+// ─── Verify ───────────────────────────────────────────────────────────────
+
+// Accept arbitrary strings (NOT z.string().email()) — syntactically-invalid
+// addresses are a valid input: they come back with status "invalid".
+export const VerifyRequestSchema = z
+  .object({
+    emails: z.array(z.string().min(1)).min(1).max(100),
+  })
+  .openapi("VerifyRequest");
+
+export const VerifyResultSchema = z
+  .object({
+    email: z.string(),
+    status: z.enum(["valid", "invalid", "risky", "catch_all", "unknown"]),
+  })
+  .openapi("VerifyResult");
+
+export const VerifyResponseSchema = z
+  .object({ results: z.array(VerifyResultSchema) })
+  .openapi("VerifyResponse");
+
 // ─── Lead (response) ─────────────────────────────────────────────────────────
 
 export const LeadSchema = z
@@ -171,6 +192,22 @@ registry.registerPath({
     200: {
       description: "Resolved leads",
       content: { "application/json": { schema: ResolveResponseSchema } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/verify",
+  summary:
+    "Verify deliverability for a batch of arbitrary email addresses (Apify SMTP verification).",
+  request: {
+    body: { content: { "application/json": { schema: VerifyRequestSchema } } },
+  },
+  responses: {
+    200: {
+      description: "Per-email deliverability verdict",
+      content: { "application/json": { schema: VerifyResponseSchema } },
     },
   },
 });

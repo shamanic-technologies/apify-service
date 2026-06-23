@@ -325,6 +325,59 @@
           "companyDomain"
         ]
       },
+      "VerifyResponse": {
+        "type": "object",
+        "properties": {
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VerifyResult"
+            }
+          }
+        },
+        "required": [
+          "results"
+        ]
+      },
+      "VerifyResult": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "valid",
+              "invalid",
+              "risky",
+              "catch_all",
+              "unknown"
+            ]
+          }
+        },
+        "required": [
+          "email",
+          "status"
+        ]
+      },
+      "VerifyRequest": {
+        "type": "object",
+        "properties": {
+          "emails": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 1,
+            "maxItems": 100
+          }
+        },
+        "required": [
+          "emails"
+        ]
+      },
       "SearchCountResponse": {
         "type": "object",
         "properties": {
@@ -548,6 +601,32 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ResolveResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/verify": {
+      "post": {
+        "summary": "Verify deliverability for a batch of arbitrary email addresses (Apify SMTP verification).",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VerifyRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Per-email deliverability verdict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VerifyResponse"
                 }
               }
             }

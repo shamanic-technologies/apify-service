@@ -4,6 +4,10 @@ import { runActor } from "./apify-client.js";
 export const ACTOR_PIPELINELABS = "pipelinelabs~lead-scraper-apollo-zoominfo-lusha-ppe";
 export const ACTOR_MICROWORLDS = "microworlds~leads-finder";
 export const ACTOR_CLEARPATH = "clearpath~email-finder-api";
+// Email-VERIFICATION actor (input = existing addresses, output = per-email
+// deliverability verdict). Distinct from the lead-FINDER actors above: it takes
+// an `emails` list, not name+domain. PAY_PER_EVENT — actor-start + per-email.
+export const ACTOR_EMAIL_VERIFIER = "ryanclinton~bulk-email-verifier";
 
 export interface SearchFilters {
   titles?: string[];
@@ -408,6 +412,106 @@ export async function searchVerifiedLeads(
     totalMatched: extractCount(countRun.items),
     runsBySource,
   };
+}
+
+// ─── email verification ───────────────────────────────────────────────────────
+
+/**
+ * Normalized deliverability verdict. The locked apify-service ↔ outlets-service
+ * contract: exactly one of these five literals per input email.
+ */
+export type VerifyStatus = "valid" | "invalid" | "risky" | "catch_all" | "unknown";
+
+export interface EmailVerdict {
+  email: string;
+  status: VerifyStatus;
+}
+
+export interface VerifyResult {
+  verdicts: EmailVerdict[];
+  /** Count of verification rows the actor returned — the billable per-email unit. */
+  verifiedCount: number;
+  /** Apify usage in USD (observability, not billing). */
+  apifyUsdSpent: number;
+}
+
+/**
+ * Map one bulk-email-verifier dataset row → the 5-literal deliverability status.
+ *
+ * The actor's own `status` enum is `valid | invalid | risky | disposable |
+ * unknown`, and it signals catch-all separately via `checks.catchAll` (true =
+ * the domain accepts any address, so the specific mailbox is unconfirmable;
+ * null = not tested). We reuse the codebase's catch-all-vs-safe-to-send
+ * vocabulary to fold those onto our enum:
+ *   - invalid (bad syntax / no MX) is terminal and never deliverable → "invalid"
+ *   - a catch-all domain → "catch_all" (consumer treats as not-send)
+ *   - disposable (mailinator-style temp inbox): reachable but unsafe for
+ *     outreach → "risky"
+ *   - valid / risky / unknown pass through; any unrecognized value → "unknown"
+ */
+export function mapVerifyStatus(row: Record<string, unknown>): VerifyStatus {
+  const raw = typeof row.status === "string" ? row.status.trim().toLowerCase() : "";
+  const checks =
+    row.checks && typeof row.checks === "object"
+      ? (row.checks as Record<string, unknown>)
+      : {};
+  const catchAll = checks.catchAll === true;
+
+  // Invalid is terminal — no MX / bad syntax; catch-all is moot (no live domain).
+  if (raw === "invalid") return "invalid";
+  // Catch-all domain: individual mailbox existence can't be confirmed → not-send.
+  if (catchAll) return "catch_all";
+  switch (raw) {
+    case "valid":
+      return "valid";
+    case "risky":
+      return "risky";
+    case "disposable":
+      return "risky";
+    case "unknown":
+      return "unknown";
+    default:
+      return "unknown";
+  }
+}
+
+/**
+ * VERIFY: take arbitrary email addresses and return a per-email deliverability
+ * verdict via the bulk-email-verifier actor (real SMTP/MX/catch-all checks).
+ *
+ * One verdict per INPUT email, matched case-insensitively to the actor's
+ * normalized `email` output; an input the actor returns no row for resolves to
+ * "unknown" (never dropped — the contract is one result per input email). The
+ * actor charges per email verified, so `verifiedCount` (rows it returned) is the
+ * billable per-email unit; the run itself is one billable actor-start.
+ */
+export async function verifyEmails(
+  token: string,
+  emails: string[]
+): Promise<VerifyResult> {
+  const r = await runActor(token, ACTOR_EMAIL_VERIFIER, {
+    emails,
+    // raw = no opinionated routing layer; we map the raw verdict ourselves.
+    mode: "raw",
+    verificationLevel: "deep",
+  });
+
+  // Index actor rows by normalized email (the actor lowercases/trims its `email`).
+  const byEmail = new Map<string, Record<string, unknown>>();
+  let verifiedCount = 0;
+  for (const row of r.items) {
+    const e = typeof row.email === "string" ? row.email.trim().toLowerCase() : "";
+    if (!e) continue;
+    verifiedCount++;
+    if (!byEmail.has(e)) byEmail.set(e, row);
+  }
+
+  const verdicts: EmailVerdict[] = emails.map((email) => {
+    const row = byEmail.get(email.trim().toLowerCase());
+    return { email, status: row ? mapVerifyStatus(row) : "unknown" };
+  });
+
+  return { verdicts, verifiedCount, apifyUsdSpent: r.usageTotalUsd };
 }
 
 const norm = (s: string) => s.trim().toLowerCase();

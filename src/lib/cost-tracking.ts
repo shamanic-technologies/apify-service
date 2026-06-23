@@ -30,6 +30,15 @@ export const START_COST_BY_SOURCE: Record<LeadSource, string> = {
   clearpath: "apify-clearpath-actor-start",
 };
 
+/**
+ * Email-VERIFICATION cost names (POST /verify, backed by the bulk-email-verifier
+ * actor). Two billable events per the Apify PAY_PER_EVENT model: one per-RUN
+ * actor-start + one per-EMAIL verified. Both MUST exist in costs-service (seeded
+ * there) or runs-service 422s the provision before any spend.
+ */
+export const VERIFY_EMAIL_COST = "apify-bulk-email-verifier-email";
+export const VERIFY_START_COST = "apify-bulk-email-verifier-actor-start";
+
 
 export interface WorstCaseItem {
   costName: string;
@@ -110,6 +119,20 @@ export async function actualizeAndCancel(
   identity: IdentityHeaders
 ): Promise<void> {
   const actuals = [...actualItemsBySource(leads), ...startItemsBySource(runsBySource)];
+  await actualizeItemsAndCancel(runId, actuals, provisioned, identity);
+}
+
+/**
+ * Generic ACTUALIZE + CANCEL: post arbitrary `actual` cost items, then cancel the
+ * provisioned worst-case holds. Used by /verify (its billable units are emails +
+ * one actor-start, not lead sources).
+ */
+export async function actualizeItemsAndCancel(
+  runId: string,
+  actuals: CostItem[],
+  provisioned: RunCost[],
+  identity: IdentityHeaders
+): Promise<void> {
   if (actuals.length > 0) await addCosts(runId, actuals, identity);
   for (const c of provisioned) {
     await updateCostStatus(runId, c.id, "cancelled", identity);
