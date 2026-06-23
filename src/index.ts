@@ -10,6 +10,7 @@ import { migrate } from "drizzle-orm/postgres-js/migrator";
 import { getSql } from "./db/index.js";
 import healthRoutes from "./routes/health.js";
 import searchRoutes from "./routes/search.js";
+import verifyRoutes from "./routes/verify.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -31,6 +32,7 @@ app.get("/openapi.json", (_req, res) => {
 
 app.use(healthRoutes);
 app.use(searchRoutes);
+app.use(verifyRoutes);
 
 app.use((_req, res) => {
   res.status(404).json({ error: "Not found" });
