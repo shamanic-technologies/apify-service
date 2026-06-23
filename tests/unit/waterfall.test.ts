@@ -272,49 +272,42 @@ describe("resolveEmails", () => {
   });
 });
 
-describe("mapVerifyStatus (actor verdict → 5-literal enum)", () => {
+describe("mapVerifyStatus (bounceverify verdict → 5-literal enum)", () => {
   it("maps a SMTP-confirmed mailbox to valid", () => {
     expect(
-      mapVerifyStatus({ status: "valid", checks: { smtpCheck: true, catchAll: false } })
+      mapVerifyStatus({ status: "valid", smtp_valid: true, is_catch_all: false })
     ).toBe("valid");
   });
 
-  it("maps no-MX / bad-syntax to invalid", () => {
-    expect(mapVerifyStatus({ status: "invalid", checks: { mxRecords: false } })).toBe(
-      "invalid"
-    );
+  it("maps no-MX / mailbox-does-not-exist to invalid", () => {
+    expect(mapVerifyStatus({ status: "invalid", mx_found: false })).toBe("invalid");
+    expect(mapVerifyStatus({ status: "invalid", smtp_valid: false })).toBe("invalid");
   });
 
   it("maps a catch-all domain to catch_all", () => {
     expect(
-      mapVerifyStatus({ status: "risky", checks: { smtpCheck: true, catchAll: true } })
+      mapVerifyStatus({ status: "risky", smtp_valid: true, is_catch_all: true })
     ).toBe("catch_all");
   });
 
-  it("prefers invalid over catch_all (no live domain trumps catch-all flag)", () => {
-    expect(mapVerifyStatus({ status: "invalid", checks: { catchAll: true } })).toBe(
-      "invalid"
-    );
+  it("prefers invalid over catch_all (no live mailbox trumps catch-all flag)", () => {
+    expect(mapVerifyStatus({ status: "invalid", is_catch_all: true })).toBe("invalid");
   });
 
   it("prefers catch_all over a valid status when the catch-all flag is set", () => {
-    expect(mapVerifyStatus({ status: "valid", checks: { catchAll: true } })).toBe(
-      "catch_all"
-    );
+    expect(mapVerifyStatus({ status: "valid", is_catch_all: true })).toBe("catch_all");
+  });
+
+  it("folds a spam-trap onto risky", () => {
+    expect(mapVerifyStatus({ status: "valid", is_spamtrap: true })).toBe("risky");
   });
 
   it("maps risky to risky", () => {
-    expect(mapVerifyStatus({ status: "risky", checks: { catchAll: false } })).toBe("risky");
+    expect(mapVerifyStatus({ status: "risky", is_catch_all: false })).toBe("risky");
   });
 
-  it("folds disposable onto risky", () => {
-    expect(mapVerifyStatus({ status: "disposable", checks: { catchAll: null } })).toBe(
-      "risky"
-    );
-  });
-
-  it("maps the actor's unknown to unknown", () => {
-    expect(mapVerifyStatus({ status: "unknown", checks: {} })).toBe("unknown");
+  it("maps unknown to unknown", () => {
+    expect(mapVerifyStatus({ status: "unknown" })).toBe("unknown");
   });
 
   it("maps an unrecognized / missing status to unknown", () => {
@@ -322,8 +315,8 @@ describe("mapVerifyStatus (actor verdict → 5-literal enum)", () => {
     expect(mapVerifyStatus({})).toBe("unknown");
   });
 
-  it("treats catchAll only when strictly true (null = not tested)", () => {
-    expect(mapVerifyStatus({ status: "valid", checks: { catchAll: null } })).toBe("valid");
+  it("treats is_catch_all only when strictly true (false = confirmed not catch-all)", () => {
+    expect(mapVerifyStatus({ status: "valid", is_catch_all: false })).toBe("valid");
   });
 });
 
@@ -331,13 +324,13 @@ describe("verifyEmails", () => {
   it("returns one verdict per input email, matched case-insensitively", async () => {
     runActorMock.mockResolvedValue(
       result([
-        { email: "good@acme.com", status: "valid", checks: { catchAll: false } },
-        { email: "bounce@nope.com", status: "invalid", checks: { mxRecords: false } },
-        { email: "any@catchall.com", status: "risky", checks: { catchAll: true } },
+        { email: "good@acme.com", status: "valid", smtp_valid: true, is_catch_all: false },
+        { email: "bounce@nope.com", status: "invalid", smtp_valid: false },
+        { email: "any@catchall.com", status: "risky", is_catch_all: true },
       ])
     );
 
-    const { verdicts, verifiedCount } = await verifyEmails("tok", [
+    const { verdicts, billableCount } = await verifyEmails("tok", [
       "GOOD@acme.com",
       "bounce@nope.com",
       "any@catchall.com",
@@ -353,15 +346,15 @@ describe("verifyEmails", () => {
       { email: "bounce@nope.com", status: "invalid" },
       { email: "any@catchall.com", status: "catch_all" },
     ]);
-    expect(verifiedCount).toBe(3);
+    expect(billableCount).toBe(3);
   });
 
   it("resolves an input the actor returned no row for to unknown", async () => {
     runActorMock.mockResolvedValue(
-      result([{ email: "seen@acme.com", status: "valid", checks: { catchAll: false } }])
+      result([{ email: "seen@acme.com", status: "valid", is_catch_all: false }])
     );
 
-    const { verdicts, verifiedCount } = await verifyEmails("tok", [
+    const { verdicts, billableCount } = await verifyEmails("tok", [
       "seen@acme.com",
       "missing@acme.com",
     ]);
@@ -370,7 +363,27 @@ describe("verifyEmails", () => {
       { email: "seen@acme.com", status: "valid" },
       { email: "missing@acme.com", status: "unknown" },
     ]);
-    // Billed per actor-returned row, not per input.
-    expect(verifiedCount).toBe(1);
+    expect(billableCount).toBe(1);
+  });
+
+  it("does not bill `unknown` rows (bounceverify charges only decisive results)", async () => {
+    runActorMock.mockResolvedValue(
+      result([
+        { email: "good@acme.com", status: "valid", smtp_valid: true },
+        { email: "blocked@smtp-wall.com", status: "unknown" },
+      ])
+    );
+
+    const { verdicts, billableCount } = await verifyEmails("tok", [
+      "good@acme.com",
+      "blocked@smtp-wall.com",
+    ]);
+
+    expect(verdicts).toEqual([
+      { email: "good@acme.com", status: "valid" },
+      { email: "blocked@smtp-wall.com", status: "unknown" },
+    ]);
+    // 2 rows returned, but only the decisive one is billable.
+    expect(billableCount).toBe(1);
   });
 });

@@ -5,7 +5,6 @@ import { getPlatformKey } from "../lib/keys-client.js";
 import { createRun, updateRun, IdentityHeaders } from "../lib/runs-client.js";
 import {
   VERIFY_EMAIL_COST,
-  VERIFY_START_COST,
   provisionAndAuthorize,
   actualizeItemsAndCancel,
 } from "../lib/cost-tracking.js";
@@ -64,36 +63,27 @@ router.post("/verify", serviceAuth, async (req: AuthenticatedRequest, res: Respo
   const runIdentity: IdentityHeaders = { ...identity, runId: run.id };
 
   try {
-    // PROVISION worst-case + AUTHORIZE, BEFORE any Apify spend. Fail-loud if a
+    // PROVISION worst-case + AUTHORIZE, BEFORE any Apify spend. Fail-loud if the
     // cost name isn't declarable. Worst case: one verify event per submitted
-    // email + one actor-start run.
+    // email (bounceverify has no actor-start).
     const provisioned = await provisionAndAuthorize(
       run.id,
-      [
-        { costName: VERIFY_EMAIL_COST, quantity: emails.length },
-        { costName: VERIFY_START_COST, quantity: 1 },
-      ],
+      [{ costName: VERIFY_EMAIL_COST, quantity: emails.length }],
       `apify-service verify (${emails.length} emails)`,
       runIdentity
     );
 
-    const { verdicts, verifiedCount } = await verifyEmails(token, emails);
+    const { verdicts, billableCount } = await verifyEmails(token, emails);
 
-    // ACTUALIZE real costs — per email the actor verified + the one run — and
-    // cancel the worst-case holds.
+    // ACTUALIZE real cost — per DECISIVE email the actor verified (bounceverify
+    // doesn't charge for `unknown` rows) — and cancel the worst-case hold.
     await actualizeItemsAndCancel(
       run.id,
       [
         {
           costName: VERIFY_EMAIL_COST,
           costSource: "platform",
-          quantity: verifiedCount,
-          status: "actual",
-        },
-        {
-          costName: VERIFY_START_COST,
-          costSource: "platform",
-          quantity: 1,
+          quantity: billableCount,
           status: "actual",
         },
       ],

@@ -6,8 +6,11 @@ export const ACTOR_MICROWORLDS = "microworlds~leads-finder";
 export const ACTOR_CLEARPATH = "clearpath~email-finder-api";
 // Email-VERIFICATION actor (input = existing addresses, output = per-email
 // deliverability verdict). Distinct from the lead-FINDER actors above: it takes
-// an `emails` list, not name+domain. PAY_PER_EVENT — actor-start + per-email.
-export const ACTOR_EMAIL_VERIFIER = "ryanclinton~bulk-email-verifier";
+// an `emails` list, not name+domain. PAY_PER_EVENT — one per-email event, no
+// actor-start. bounceverify runs SMTP + catch-all on its OWN backend
+// (bounceverify.com), so it does real mailbox verification — unlike Apify-infra
+// SMTP actors that hit the platform's port-25 block and degrade to MX guessing.
+export const ACTOR_EMAIL_VERIFIER = "bounceverify~bounceverify-email-verifier";
 
 export interface SearchFilters {
   titles?: string[];
@@ -429,44 +432,44 @@ export interface EmailVerdict {
 
 export interface VerifyResult {
   verdicts: EmailVerdict[];
-  /** Count of verification rows the actor returned — the billable per-email unit. */
-  verifiedCount: number;
+  /**
+   * Count of DECISIVE verification rows the actor returned — the billable
+   * per-email unit. bounceverify charges only for decisive results (it does NOT
+   * charge for `unknown` / inconclusive rows), so we bill the decisive count,
+   * not every returned row.
+   */
+  billableCount: number;
   /** Apify usage in USD (observability, not billing). */
   apifyUsdSpent: number;
 }
 
 /**
- * Map one bulk-email-verifier dataset row → the 5-literal deliverability status.
+ * Map one bounceverify dataset row → the 5-literal deliverability status.
  *
- * The actor's own `status` enum is `valid | invalid | risky | disposable |
- * unknown`, and it signals catch-all separately via `checks.catchAll` (true =
- * the domain accepts any address, so the specific mailbox is unconfirmable;
- * null = not tested). We reuse the codebase's catch-all-vs-safe-to-send
- * vocabulary to fold those onto our enum:
- *   - invalid (bad syntax / no MX) is terminal and never deliverable → "invalid"
+ * bounceverify's `status` enum is `valid | invalid | risky | unknown`, with
+ * catch-all signalled separately via `is_catch_all` (true = the domain accepts
+ * any address, so the specific mailbox is unconfirmable) and spam-traps via
+ * `is_spamtrap`. Fold those onto our 5-literal contract enum:
+ *   - invalid (bad syntax / no MX / SMTP "mailbox does not exist") is terminal → "invalid"
  *   - a catch-all domain → "catch_all" (consumer treats as not-send)
- *   - disposable (mailinator-style temp inbox): reachable but unsafe for
- *     outreach → "risky"
+ *   - a spam-trap → "risky" (reachable but toxic to send to)
  *   - valid / risky / unknown pass through; any unrecognized value → "unknown"
  */
 export function mapVerifyStatus(row: Record<string, unknown>): VerifyStatus {
   const raw = typeof row.status === "string" ? row.status.trim().toLowerCase() : "";
-  const checks =
-    row.checks && typeof row.checks === "object"
-      ? (row.checks as Record<string, unknown>)
-      : {};
-  const catchAll = checks.catchAll === true;
+  const catchAll = row.is_catch_all === true;
+  const spamtrap = row.is_spamtrap === true;
 
-  // Invalid is terminal — no MX / bad syntax; catch-all is moot (no live domain).
+  // Invalid is terminal — no MX / bad syntax / mailbox doesn't exist; catch-all moot.
   if (raw === "invalid") return "invalid";
   // Catch-all domain: individual mailbox existence can't be confirmed → not-send.
   if (catchAll) return "catch_all";
+  // Spam-trap: deliverable but sending tanks sender reputation → not-send.
+  if (spamtrap) return "risky";
   switch (raw) {
     case "valid":
       return "valid";
     case "risky":
-      return "risky";
-    case "disposable":
       return "risky";
     case "unknown":
       return "unknown";
@@ -477,32 +480,29 @@ export function mapVerifyStatus(row: Record<string, unknown>): VerifyStatus {
 
 /**
  * VERIFY: take arbitrary email addresses and return a per-email deliverability
- * verdict via the bulk-email-verifier actor (real SMTP/MX/catch-all checks).
+ * verdict via the bounceverify actor (real SMTP + catch-all on its own backend).
  *
  * One verdict per INPUT email, matched case-insensitively to the actor's
  * normalized `email` output; an input the actor returns no row for resolves to
  * "unknown" (never dropped — the contract is one result per input email). The
- * actor charges per email verified, so `verifiedCount` (rows it returned) is the
- * billable per-email unit; the run itself is one billable actor-start.
+ * actor charges per DECISIVE email (no actor-start, no charge for `unknown`), so
+ * `billableCount` (decisive rows) is the billable per-email unit.
  */
 export async function verifyEmails(
   token: string,
   emails: string[]
 ): Promise<VerifyResult> {
-  const r = await runActor(token, ACTOR_EMAIL_VERIFIER, {
-    emails,
-    // raw = no opinionated routing layer; we map the raw verdict ourselves.
-    mode: "raw",
-    verificationLevel: "deep",
-  });
+  const r = await runActor(token, ACTOR_EMAIL_VERIFIER, { emails });
 
   // Index actor rows by normalized email (the actor lowercases/trims its `email`).
   const byEmail = new Map<string, Record<string, unknown>>();
-  let verifiedCount = 0;
+  let billableCount = 0;
   for (const row of r.items) {
     const e = typeof row.email === "string" ? row.email.trim().toLowerCase() : "";
     if (!e) continue;
-    verifiedCount++;
+    // bounceverify bills only decisive results — an `unknown` row is free.
+    const st = typeof row.status === "string" ? row.status.trim().toLowerCase() : "";
+    if (st && st !== "unknown") billableCount++;
     if (!byEmail.has(e)) byEmail.set(e, row);
   }
 
@@ -511,7 +511,7 @@ export async function verifyEmails(
     return { email, status: row ? mapVerifyStatus(row) : "unknown" };
   });
 
-  return { verdicts, verifiedCount, apifyUsdSpent: r.usageTotalUsd };
+  return { verdicts, billableCount, apifyUsdSpent: r.usageTotalUsd };
 }
 
 const norm = (s: string) => s.trim().toLowerCase();

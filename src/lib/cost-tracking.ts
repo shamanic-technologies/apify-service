@@ -31,13 +31,12 @@ export const START_COST_BY_SOURCE: Record<LeadSource, string> = {
 };
 
 /**
- * Email-VERIFICATION cost names (POST /verify, backed by the bulk-email-verifier
- * actor). Two billable events per the Apify PAY_PER_EVENT model: one per-RUN
- * actor-start + one per-EMAIL verified. Both MUST exist in costs-service (seeded
- * there) or runs-service 422s the provision before any spend.
+ * Email-VERIFICATION cost name (POST /verify, backed by the bounceverify actor).
+ * ONE billable event per the Apify PAY_PER_EVENT model: a per-EMAIL verified fee
+ * ($0.00089), no actor-start. MUST exist in costs-service (seeded there) or
+ * runs-service 422s the provision before any spend.
  */
-export const VERIFY_EMAIL_COST = "apify-bulk-email-verifier-email";
-export const VERIFY_START_COST = "apify-bulk-email-verifier-actor-start";
+export const VERIFY_EMAIL_COST = "apify-bounceverify-email";
 
 
 export interface WorstCaseItem {
