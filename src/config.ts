@@ -31,6 +31,12 @@ export const config = {
   get billingServiceApiKey(): string {
     return required("BILLING_SERVICE_API_KEY");
   },
+  get chatServiceUrl(): string {
+    return required("CHAT_SERVICE_URL");
+  },
+  get chatServiceApiKey(): string {
+    return required("CHAT_SERVICE_API_KEY");
+  },
   get port(): number {
     return Number(process.env.PORT || 3010);
   },

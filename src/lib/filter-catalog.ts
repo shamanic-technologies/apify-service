@@ -226,6 +226,44 @@ export const FILTER_FIELDS: FilterFieldDoc[] = [
   { name: "offset", type: "integer", description: "Resume position for pagination past the first page (0-based). Routed to the pipelinelabs source only." },
 ];
 
+/**
+ * The faithful audience-filter fields: every people-search filter apify
+ * supports, EXCLUDING the paging knobs (`limit`/`offset`), which are a delivery
+ * concern, not part of "who is in this audience". This is the exact surface a
+ * persisted apify audience stores + the LLM is asked to fill.
+ */
+export const AUDIENCE_FILTER_FIELDS: FilterFieldDoc[] = FILTER_FIELDS.filter(
+  (f) => f.name !== "limit" && f.name !== "offset"
+);
+
+/**
+ * Build the strict JSON Schema for the faithful audience-filter object, suitable
+ * for chat-service `/complete` `responseSchema` (provider-enforced structured
+ * output). All fields are optional (an audience may use any subset) and the
+ * enum-constrained fields carry their FULL accepted vocabulary — faithful, no
+ * narrowing. `additionalProperties: false` keeps the model from inventing keys.
+ */
+export function buildFilterJsonSchema(): Record<string, unknown> {
+  const properties: Record<string, unknown> = {};
+  for (const f of AUDIENCE_FILTER_FIELDS) {
+    if (f.type === "string[]") {
+      const items: Record<string, unknown> = { type: "string" };
+      if (f.enum) items.enum = [...f.enum];
+      properties[f.name] = { type: "array", items, description: f.description };
+    } else {
+      // "number" | "integer"
+      properties[f.name] = { type: "integer", description: f.description };
+    }
+  }
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties,
+    // All optional — an audience may legitimately use any subset of filters.
+    required: [],
+  };
+}
+
 /** Build the human/LLM-readable filter-shape prompt (gap 4). Deterministic. */
 export function buildFiltersPromptText(): string {
   const lines: string[] = [];
