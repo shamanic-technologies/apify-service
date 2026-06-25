@@ -551,6 +551,183 @@
           "revenueRanges",
           "fundingStages"
         ]
+      },
+      "SuggestFromSegmentResponse": {
+        "type": "object",
+        "properties": {
+          "apifyAudienceId": {
+            "type": "string"
+          },
+          "filters": {
+            "$ref": "#/components/schemas/AudienceFilters"
+          },
+          "count": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "apifyAudienceId",
+          "filters",
+          "count"
+        ]
+      },
+      "AudienceFilters": {
+        "type": "object",
+        "properties": {
+          "titles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "seniorities": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "functions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "locationCountries": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "locationStates": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "locationCities": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "companyNames": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "industries": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "companyDomains": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "keywords": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "companySizes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "revenueRanges": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "fundingStages": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "technologies": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "employeeMin": {
+            "type": "integer",
+            "minimum": 0,
+            "exclusiveMinimum": true
+          },
+          "employeeMax": {
+            "type": "integer",
+            "minimum": 0,
+            "exclusiveMinimum": true
+          }
+        }
+      },
+      "SuggestFromSegmentRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1
+          },
+          "brandId": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "name",
+          "description"
+        ]
+      },
+      "AudienceResponse": {
+        "type": "object",
+        "properties": {
+          "apifyAudienceId": {
+            "type": "string"
+          },
+          "filters": {
+            "$ref": "#/components/schemas/AudienceFilters"
+          },
+          "count": {
+            "type": "number"
+          },
+          "status": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "apifyAudienceId",
+          "filters",
+          "count",
+          "status",
+          "createdAt"
+        ]
+      },
+      "DryRunResponse": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "count"
+        ]
       }
     },
     "parameters": {}
@@ -690,6 +867,72 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/audiences/suggest-from-segment": {
+      "post": {
+        "summary": "Build, count, and persist a faithful apify audience from a natural-language segment (agentic LLM refine loop via chat-service).",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SuggestFromSegmentRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Persisted apify audience id + faithful filters + match count",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuggestFromSegmentResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/audiences/{apifyAudienceId}": {
+      "get": {
+        "summary": "Fetch a persisted apify audience by id (filters, count, status).",
+        "responses": {
+          "200": {
+            "description": "The apify audience",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AudienceResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Audience not found"
+          }
+        }
+      }
+    },
+    "/audiences/{apifyAudienceId}/dry-run": {
+      "post": {
+        "summary": "Re-count a persisted apify audience live (free pipelinelabs countOnly probe); refreshes the cached count.",
+        "responses": {
+          "200": {
+            "description": "Live match count",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DryRunResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Audience not found"
           }
         }
       }

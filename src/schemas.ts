@@ -49,6 +49,48 @@ export const SearchCountRequestSchema = z
   .object({ ...filterFields })
   .openapi("SearchCountRequest");
 
+// ─── Audiences (B/S/G domain) ────────────────────────────────────────────────
+
+// The FAITHFUL apify audience filter object: every people-search filter apify
+// supports, full accepted value sets, no paging knobs. Reuses the exact filter
+// fields the live /search surface accepts (additive, byte-faithful).
+export const AudienceFiltersSchema = z
+  .object({ ...filterFields })
+  .openapi("AudienceFilters");
+
+export type AudienceFilters = z.infer<typeof AudienceFiltersSchema>;
+
+export const SuggestFromSegmentRequestSchema = z
+  .object({
+    name: z.string().min(1),
+    description: z.string().min(1),
+    // Optional pointer to the brand this audience is built for (string|null).
+    brandId: z.string().nullable().optional(),
+  })
+  .openapi("SuggestFromSegmentRequest");
+
+export const SuggestFromSegmentResponseSchema = z
+  .object({
+    apifyAudienceId: z.string(),
+    filters: AudienceFiltersSchema,
+    count: z.number(),
+  })
+  .openapi("SuggestFromSegmentResponse");
+
+export const AudienceResponseSchema = z
+  .object({
+    apifyAudienceId: z.string(),
+    filters: AudienceFiltersSchema,
+    count: z.number(),
+    status: z.string(),
+    createdAt: z.string(),
+  })
+  .openapi("AudienceResponse");
+
+export const DryRunResponseSchema = z
+  .object({ count: z.number() })
+  .openapi("DryRunResponse");
+
 export const SearchCountResponseSchema = z
   .object({ totalMatched: z.number() })
   .openapi("SearchCountResponse");
@@ -249,6 +291,53 @@ registry.registerPath({
       description: "Accepted filter vocabularies",
       content: { "application/json": { schema: ReferenceResponseSchema } },
     },
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/audiences/suggest-from-segment",
+  summary:
+    "Build, count, and persist a faithful apify audience from a natural-language segment (agentic LLM refine loop via chat-service).",
+  request: {
+    body: {
+      content: { "application/json": { schema: SuggestFromSegmentRequestSchema } },
+    },
+  },
+  responses: {
+    200: {
+      description: "Persisted apify audience id + faithful filters + match count",
+      content: {
+        "application/json": { schema: SuggestFromSegmentResponseSchema },
+      },
+    },
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/audiences/{apifyAudienceId}",
+  summary: "Fetch a persisted apify audience by id (filters, count, status).",
+  responses: {
+    200: {
+      description: "The apify audience",
+      content: { "application/json": { schema: AudienceResponseSchema } },
+    },
+    404: { description: "Audience not found" },
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/audiences/{apifyAudienceId}/dry-run",
+  summary:
+    "Re-count a persisted apify audience live (free pipelinelabs countOnly probe); refreshes the cached count.",
+  responses: {
+    200: {
+      description: "Live match count",
+      content: { "application/json": { schema: DryRunResponseSchema } },
+    },
+    404: { description: "Audience not found" },
   },
 });
 

@@ -63,3 +63,40 @@ export async function serviceAuth(
 
   next();
 }
+
+/**
+ * Read-only org auth: requires x-org-id only (no x-user-id). Used by read
+ * endpoints whose locked contract carries no user header (e.g. GET an audience
+ * by id). Still extracts the optional run-context headers like serviceAuth.
+ */
+export async function orgReadAuth(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+) {
+  const orgId = req.headers["x-org-id"] as string | undefined;
+  if (!orgId) {
+    return res.status(400).json({ error: "x-org-id header required" });
+  }
+  req.orgId = orgId;
+
+  const userId = req.headers["x-user-id"] as string | undefined;
+  const runId = req.headers["x-run-id"] as string | undefined;
+  const brandIdRaw = req.headers["x-brand-id"] as string | undefined;
+  const brandIds = parseBrandIds(brandIdRaw);
+  const campaignId = req.headers["x-campaign-id"] as string | undefined;
+  const featureSlug = req.headers["x-feature-slug"] as string | undefined;
+  const workflowSlug = req.headers["x-workflow-slug"] as string | undefined;
+  const audienceId = req.headers["x-audience-id"] as string | undefined;
+
+  if (userId) req.userId = userId;
+  if (runId) req.runId = runId;
+  if (brandIdRaw) req.brandId = brandIdRaw;
+  if (brandIds.length > 0) req.brandIds = brandIds;
+  if (campaignId) req.campaignId = campaignId;
+  if (featureSlug) req.featureSlug = featureSlug;
+  if (workflowSlug) req.workflowSlug = workflowSlug;
+  if (audienceId) req.audienceId = audienceId;
+
+  next();
+}
