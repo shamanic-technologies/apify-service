@@ -54,10 +54,38 @@ export async function authorize(
     sufficient: boolean;
     balance_cents?: string;
     required_cents?: string;
+    reason?: string;
+    sales_funnel_cap?: Record<string, unknown>;
   };
   if (!data.sufficient) {
-    throw new Error(
+    if (data.reason) {
+      // A sales funnel (campaign) MAX BUDGET refusal, not a balance shortfall:
+      // the org may have credit. Name the real cause and carry billing's
+      // `reason` + `sales_funnel_cap` verbatim to the caller.
+      throw new BillingRefusedError(
+        `[apify-service] sales funnel max budget reached (reason=${data.reason}, balance=${data.balance_cents}¢, required=${data.required_cents}¢)`,
+        data.reason,
+        data.sales_funnel_cap
+      );
+    }
+    throw new BillingRefusedError(
       `[apify-service] insufficient balance (balance=${data.balance_cents}¢, required=${data.required_cents}¢)`
     );
+  }
+}
+
+/**
+ * billing-service answered `sufficient:false`. `reason` (+ `salesFunnelCap`)
+ * is set ONLY when billing refused for a sales funnel's max budget; a plain
+ * balance shortfall carries neither and keeps its old message.
+ */
+export class BillingRefusedError extends Error {
+  constructor(
+    message: string,
+    readonly reason?: string,
+    readonly salesFunnelCap?: Record<string, unknown>
+  ) {
+    super(message);
+    this.name = "BillingRefusedError";
   }
 }

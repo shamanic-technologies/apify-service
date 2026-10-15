@@ -12,6 +12,7 @@ import healthRoutes from "./routes/health.js";
 import searchRoutes from "./routes/search.js";
 import verifyRoutes from "./routes/verify.js";
 import audienceRoutes from "./routes/audiences.js";
+import { errorHandler } from "./lib/error-handler.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -42,12 +43,7 @@ app.use((_req, res) => {
 
 Sentry.setupExpressErrorHandler(app);
 
-app.use(
-  (err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-    console.error("[apify-service] Unhandled error:", err);
-    res.status(500).json({ error: "Internal server error" });
-  }
-);
+app.use(errorHandler);
 
 if (process.env.NODE_ENV !== "test") {
   const dbUrl = process.env.APIFY_SERVICE_DATABASE_URL;

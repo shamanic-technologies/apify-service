@@ -206,6 +206,28 @@ export type SearchRequest = z.infer<typeof SearchRequestSchema>;
 export type ResolveRequest = z.infer<typeof ResolveRequestSchema>;
 export type Lead = z.infer<typeof LeadSchema>;
 
+export const ErrorResponseSchema = z
+  .object({
+    error: z
+      .string()
+      .describe(
+        '"Internal server error" for any unhandled failure (incl. a balance shortfall); "Sales funnel max budget reached" when billing refused for a campaign max budget.'
+      ),
+    reason: z
+      .string()
+      .optional()
+      .describe(
+        "billing-service's refusal reason, verbatim. Present ONLY when billing refused because a sales funnel (campaign) MAX BUDGET was reached (`sales_funnel_max_budget_reached` / `sales_funnel_max_budget_unreadable`): raise that campaign's max budget, adding credit changes nothing."
+      ),
+    sales_funnel_cap: z
+      .record(z.string(), z.unknown())
+      .optional()
+      .describe(
+        "billing-service's `sales_funnel_cap` object, verbatim ({ salesFunnelId, salesFunnelCampaignId, amountCents, period, consumedCents, reservedCents }). Present only with `reason`."
+      ),
+  })
+  .openapi("ErrorResponse");
+
 // ─── OpenAPI paths ─────────────────────────────────────────────────────────
 
 registry.registerPath({
@@ -219,6 +241,11 @@ registry.registerPath({
     200: {
       description: "Verified leads",
       content: { "application/json": { schema: SearchResponseSchema } },
+    },
+    500: {
+      description:
+        "Unhandled failure. A billing refusal for a sales funnel max budget names it and carries billing's `reason` + `sales_funnel_cap` verbatim.",
+      content: { "application/json": { schema: ErrorResponseSchema } },
     },
   },
 });
@@ -235,6 +262,11 @@ registry.registerPath({
       description: "Resolved leads",
       content: { "application/json": { schema: ResolveResponseSchema } },
     },
+    500: {
+      description:
+        "Unhandled failure. A billing refusal for a sales funnel max budget names it and carries billing's `reason` + `sales_funnel_cap` verbatim.",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
   },
 });
 
@@ -250,6 +282,11 @@ registry.registerPath({
     200: {
       description: "Per-email deliverability verdict",
       content: { "application/json": { schema: VerifyResponseSchema } },
+    },
+    500: {
+      description:
+        "Unhandled failure. A billing refusal for a sales funnel max budget names it and carries billing's `reason` + `sales_funnel_cap` verbatim.",
+      content: { "application/json": { schema: ErrorResponseSchema } },
     },
   },
 });
