@@ -30,7 +30,7 @@ Prod-only repo — **no `staging` branch** (normally). Ship via `release.sh hotf
 - `src/lib/keys-client.ts` — platform Apify key via key-service
 - `src/lib/runs-client.ts` — run + cost tracking (createRun, addCosts, updateCostStatus, updateRun)
 - `src/lib/cost-tracking.ts` — per-actor cost names + provision→authorize / actualize→cancel helpers
-- `src/lib/billing-client.ts` — affordability authorize
+- `src/lib/billing-client.ts` — affordability authorize. `sufficient:false` throws `BillingRefusedError`; when billing sends `reason` (sales funnel MAX BUDGET refusal) `src/lib/error-handler.ts` answers the SAME 500 but `{error:"Sales funnel max budget reached", reason, sales_funnel_cap}` (billing's fields verbatim). A balance shortfall stays `{error:"Internal server error"}`.
 - `src/lib/saturation.ts` — pure per-campaign no-repeat + saturation-stop helpers (`emissionKey`, `selectFreshLeads`, `computePaging`) used by `/search` (#18)
 - `src/db/schema.ts` — `lead_searches` + `leads` (leads doubles as 12-month cache) + `lead_emissions` (per-campaign no-repeat log)
 
