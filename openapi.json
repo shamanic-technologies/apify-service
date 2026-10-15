@@ -135,6 +135,29 @@
           "isInferred"
         ]
       },
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "description": "\"Internal server error\" for any unhandled failure (incl. a balance shortfall); \"Sales funnel max budget reached\" when billing refused for a campaign max budget."
+          },
+          "reason": {
+            "type": "string",
+            "description": "billing-service's refusal reason, verbatim. Present ONLY when billing refused because a sales funnel (campaign) MAX BUDGET was reached (`sales_funnel_max_budget_reached` / `sales_funnel_max_budget_unreadable`): raise that campaign's max budget, adding credit changes nothing."
+          },
+          "sales_funnel_cap": {
+            "type": "object",
+            "additionalProperties": {
+              "nullable": true
+            },
+            "description": "billing-service's `sales_funnel_cap` object, verbatim ({ salesFunnelId, salesFunnelCampaignId, amountCents, period, consumedCents, reservedCents }). Present only with `reason`."
+          }
+        },
+        "required": [
+          "error"
+        ]
+      },
       "SearchRequest": {
         "type": "object",
         "properties": {
@@ -755,6 +778,16 @@
                 }
               }
             }
+          },
+          "500": {
+            "description": "Unhandled failure. A billing refusal for a sales funnel max budget names it and carries billing's `reason` + `sales_funnel_cap` verbatim.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -781,6 +814,16 @@
                 }
               }
             }
+          },
+          "500": {
+            "description": "Unhandled failure. A billing refusal for a sales funnel max budget names it and carries billing's `reason` + `sales_funnel_cap` verbatim.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -804,6 +847,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/VerifyResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unhandled failure. A billing refusal for a sales funnel max budget names it and carries billing's `reason` + `sales_funnel_cap` verbatim.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             }
